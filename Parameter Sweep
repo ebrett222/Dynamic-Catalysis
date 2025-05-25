@@ -1,4 +1,4 @@
-''' Thomas Jefferson once said "if beta, of all things, is subject to change, then we are a country truly lost". keep beta the same, stop the madness '''
+'''                 WARNING:   STATIC VOLCANO STUFF MAY BE PUSHING THIS CODE OVER THE EDGE, MIGHT BE BEST TO SPLIT THIS CODE UP FOR DIFFERENT TASKS '''
 
 ''' make sure to se "exist_ok" to "False" when testing for realsies so that data and plot saves don't get overwritten '''
 ''' make sure to set the "current directory" being used to where you want the files saved: the code will take care of the rest '''
@@ -46,6 +46,10 @@ for i in 'a':
 
     
 
+
+
+
+
 ############################################################################################################################
 ############################################################################################################################
 ##########################################################  GODLESS PARAMETERS  #######################################################
@@ -64,12 +68,12 @@ for i in 'a':
     '''SWEET BABY JESUS PAY ATTENTION TO THIS:   0 is the paremeter varied each iteration, 1 is varied when all the 0's are done, 2 is varied when the 1's are done, and so on'''
     VPD = []   # VERY IMPORTANT DO NOT DELETE:   VPD is "varying parameters dictionary" even though it's not really a dictionary
     VPD_all = []
-    vary_V = 2
-    vary_dG = 0
-    vary_beta = 3
-    vary_kT = -6
-    vary_kV = 1
-    vary_dG_HP = -1
+    vary_V = -1
+    vary_dG = 1
+    vary_beta = 0
+    vary_kT = 3
+    vary_kV = 2
+    vary_dG_HP = -4
     vary_dG_Lower = -5
     vary_dG_Upper = -3
     ''' SWEET BABY RAY'S BARBEQUE SAUCE PAY ATTENTION:  setting "vary_V" as a postive number means "we are including Voltage as one of the parameters that is held constant through a single test".   It DOES NOT mean that Voltage varies with time within each test: if that is the case, set vary_V to a negative ant it will not be included in the varied-between-tests parameters'''    
@@ -78,7 +82,7 @@ for i in 'a':
     ############################################   STEADY-STATE PARAMETERS   #########################################################
 
     # beta stuff
-    beta_min = 0;   beta_max = 1;   beta_step = 0.01
+    beta_min = 0;   beta_max = 1;   beta_step = 0.05
     beta_vals = np.arange(beta_step,   beta_max,   beta_step)
     beta_vals = [float(i) for i in beta_vals]
     beta_vals = [0.5]
@@ -92,13 +96,10 @@ for i in 'a':
     
     # kV stuff
     k_V_vals = [1E-3, 1E-2, 1E-1, 1E0, 1E1, 1E2, 1E3, 1E4] # note: NOT multiplied by cmax yet
-    #k_V_vals = [1E2]
+    k_V_vals = [1E2]
     k_V_vals = [i*cmax for i in k_V_vals]   # multiplies kV vals by cmax
     k_V_min = min(k_V_vals);   k_V_max = max(k_V_vals)
-    '''below makes a nice log-scale appropriate set of kV values'''
-    k_V_base_vals = np.logspace(-3, 4, num=50)  # 10^-3 to 10^4, 8 points
-    k_V_vals = [i * cmax for i in k_V_base_vals]  # scale by cmax
-    k_V_min = min(k_V_vals);   k_V_max = max(k_V_vals)
+
     
     # # keeps k_V and k_T at a certain ratio
     # k_T_vals = [1E-3, 1E-2, 1E-1, 1E0, 1E1, 1E2, 1E3, 1E4]
@@ -109,15 +110,15 @@ for i in 'a':
     ######################################   (potentially) TRANSIENT PARAMETERS   #########################################################
     
     # Voltage stuff
-    V_lower = -0.3;   V_upper = 0.3;   V_step = 0.01
-    V_vals = np.arange(V_lower,   V_upper,   V_step)
-    V_vals = [float(i) for i in V_vals if (abs(i) > 0.00001)] # takes out the "V=0" value
-    V_vals = [0.1]
+    V_lower = 1.7;   V_upper = 2.3;   V_step = 0.1
+    V_vals = np.arange(V_lower,   V_upper+V_step,   V_step)
+    V_vals = [float(i) for i in V_vals]
+    V_vals = [-0.1]
     
     
     # dG stuff (for when dG is either a single value across all iterations  OR  is steady with time but varies between iterations)
     '''DO NOT DELETE either dGmin/dGmax thingy'''
-    dG_eV_min = -0.3;   dG_eV_max = 0.3;   dG_eV_step = 0.004   # ALL THESE MEASUREMENTS ARE IN eV
+    dG_eV_min = -0.3;   dG_eV_max = 0.3;   dG_eV_step = 0.8   # ALL THESE MEASUREMENTS ARE IN eV
     dG_eV_vals = np.arange(dG_eV_min, dG_eV_max, dG_eV_step)
     #dG_eV_vals = [-0.06, 0.06] # dG values SPECIFICALLY in units of eV
     dG_vals = [float(i * e_charge * AvoNum) for i in dG_eV_vals] # converts dG from eV to J/mol (dG_eV * charge_of_electron * Avocado_number hehehe)
@@ -139,7 +140,6 @@ for i in 'a':
 
 
 
-
 #####################################################   TIME POINTS CREATION   #########################################################
 
 # creates a list of time points dependent on the parameters being varied
@@ -157,12 +157,12 @@ for i in "a":
         print('dG varies with time, using "scanrate_dG_transient".....\n')
         
     if vary_V < 0:
-        max_time = 20
+        max_time = 40
         scanrate = 0.025
         print('V varies with time, using "scanrate_V_transient".....\n')
         
     if (vary_V >= 0) and (vary_dG >= 0):
-        max_time = 20
+        max_time = 30
         scanrate = 0.025
         print('V and dG are steady with time, defaulting to scanrate_V_transient.....\n')
     
@@ -185,15 +185,24 @@ for i in "a":
 ###########################################################################################################################
 
 
-mode_normal = 0
+# note that these plots will only show up once, at the beginning
+show_V_vs_t_plot = 1
+show_dG_vs_t_plot = 0
+
+
+mode_normal = 1
 for i in 'a':
     
-    show_cov_vs_V_plots = 0;        save_cov_vs_V_plots = 0
-    show_cov_vs_t_plots = 0;        save_cov_vs_t_plots = 0
+    # coveragae plots
+    show_cov_vs_V_plots = 0;        save_cov_vs_V_plots = 0   # good for when V is transient
+    show_cov_vs_t_plots = 1;        save_cov_vs_t_plots = 0   # good for when dG is transient (or nothing is transient)
+    
+    # rate plots
+    show_rate_vs_t_plots = 1;       save_rate_vs_t_plots = 0
 
     # current plots - shows pos and neg current values
     show_xcurrent_vs_t_full_plots = 0;    save_xcurrent_vs_t_full_plots = 0
-    show_ycurrent_vs_t_full_plots = 0;    save_ycurrent_vs_t_full_plots = 0
+    show_ycurrent_vs_t_full_plots = 1;    save_ycurrent_vs_t_full_plots = 0
     show_xcurrent_vs_V_full_plots = 0;    save_xcurrent_vs_V_full_plots = 0    
     show_ycurrent_vs_V_full_plots = 0;    save_ycurrent_vs_V_full_plots = 0
 
@@ -202,6 +211,10 @@ for i in 'a':
     show_ycurrent_vs_t_pos_plots = 0;    save_ycurrent_vs_t_pos_plots = 0
     show_xcurrent_vs_V_pos_plots = 0;    save_xcurrent_vs_V_pos_plots = 0    
     show_ycurrent_vs_V_pos_plots = 0;    save_ycurrent_vs_V_pos_plots = 0
+    
+    # equilibrium potential values
+    show_eqpot_plots = 1
+
 
 mode_PassFail = 0
 for i in 'a':
@@ -226,10 +239,20 @@ for i in 'a':
         show_indiv_color_plots = 1
     else: show_indiv_color_plots = 0
 
-mode_static_volcano = 1    # for holding V constant AND dG constant
+
+mode_static_volcano = 0    # for holding V constant AND dG constant
 for i in 'a':
-    show_max_curr_vs_dG_plot = 1
-    show_stat_volc_max_curr_plots = 1
+    
+    # these allow you to display different current components on the "max current vs dG" plots (standard static volcano plots) since too many at once might be hard to see, but you might also want to compare
+    # "SVP" = "static volcano plot"
+    SVP_current = 1;   SVP_j0 = 1;   SVP_j0_X_exp1 = 1;   SVP_j0_X_exp2 = 1
+    
+    # these allow for individual "curret component vs. dG" plots
+    show_max_curr_vs_dG_plot = 1;   show_max_j0_curr_vs_dG_plot = 0;   show_max_exp1_curr_vs_dG_plot = 0;   show_max_exp2_curr_vs_dG_plot = 0
+    
+    # ***deep breath*** plots showing how the dG value associated with the max curent among ALL the max currents in a given static volcano plot ("dG(max)") changes WRT another parameter, like beta or Voltage
+    show_stat_volc_max_curr_plots = 0
+
 
 mode_dynamic_volcano = 0   # for holding V constant and varying dG with time (SPECIFICALLY between two dG values)
 for i in 'a':
@@ -237,10 +260,6 @@ for i in 'a':
     show_dyn_curr_vs_t_plot = 0;    save_dynam_curr_vs_t_plot = 0
     show_dyn_curr_vs_cov_plot = 0;  save_dynam_curr_vs_cov_plot = 0
     
-
-# note that these plots will only show up once, at the beginning
-show_V_vs_t_plot = 1
-show_dG_vs_t_plot = 0
 
 '''can probably condense this into a loop by moving it below the funcitons and iterating through VPD'''
 # prints parameters in terminal at the beginning of each run
@@ -360,7 +379,7 @@ def dGvt(t, dG_temp, dG_HP_temp, dG_Lower_temp, dG_Upper_temp):
         # 
         return dG_min if (t // dG_HP_temp) % 2 == 0 else dG_max
 
-
+AAA = []
 # this is the "rates", "site_balance", "eqpot" code we've been developing
 # depending how this function passes/fails, it'll return a specific value that will be color coded for marking on he plots
 def Kinetics_Function(V_temp, dG_temp, beta, k_V, k_T, dG_HP_temp, dG_Lower_temp, dG_Upper_temp):
@@ -386,6 +405,7 @@ def Kinetics_Function(V_temp, dG_temp, beta, k_V, k_T, dG_HP_temp, dG_Lower_temp
 
 
     # reduction is FORWARD, oxidation is REVERSE, all variables are consistent with this
+    ''' note that "rates" has been modified to pass all rate info, but most calls only use the actual rate values '''
     def rates_r0(t, theta):
         
         theta = np.asarray(theta)
@@ -397,13 +417,23 @@ def Kinetics_Function(V_temp, dG_temp, beta, k_V, k_T, dG_HP_temp, dG_Lower_temp
         U0 = eqpot(theta, GHad) #call function to find U for given theta
         
         ##Volmer Rate Equation
-        r_V = k_V * (thetaA_star ** (1 - beta)) * (thetaA_H ** beta) * np.exp(beta * GHad / RT) * (np.exp(-(beta) * F * (V - U0) / RT) - np.exp((1 - beta) * F * (V - U0) / RT))
+        r_V_j0 = k_V * (thetaA_star ** (1 - beta)) * (thetaA_H ** beta) * np.exp(beta * GHad / RT)
+        r_V_exp1 = np.exp(-(beta) * F * (V - U0) / RT)
+        r_V_exp2 = np.exp((1 - beta) * F * (V - U0) / RT)
+        r_V = r_V_j0 * (r_V_exp1 - r_V_exp2)
+        
+        
+        AAA1 = V_list[0]+(dG_vals[0]/F)
+        AAA2 = F/RT
+        AAA3 = 1 + np.exp(AAA1*AAA2)
+        AAA.append(1/AAA3)
         
         ##Tafel Rate equation
         ##Tafel does not contribute to kinetic current, but does affect coverage of adsorbed hydrogen and free sites
         r_T = k_T * ((thetaA_H **2) - (partialPH2 * (thetaA_star ** 2) * np.exp((-2*GHad) / RT)))
-        
-        return r_V, r_T
+
+        return[r_V, r_T, r_V_j0, r_V_exp1, r_V_exp2]
+
     
     
     def sitebal_r0(t, theta):
@@ -416,7 +446,7 @@ def Kinetics_Function(V_temp, dG_temp, beta, k_V, k_T, dG_HP_temp, dG_Lower_temp
         list_theta_star_all.append(theta[0])
         list_theta_H_all.append(theta[1])
         
-        r_V, r_T = rates_r0(t, theta)
+        r_V, r_T, _, _, _ = rates_r0(t, theta)   # the "_" are placeholders for the rate component values which aren't used right now
         thetaStar_rate = (-r_V + (2*r_T)) / cmax
         thetaH_rate = (r_V - (2*r_T)) / cmax
         dthetadt = [(thetaStar_rate), thetaH_rate] # [0 = star, 1 = H]
@@ -426,8 +456,10 @@ def Kinetics_Function(V_temp, dG_temp, beta, k_V, k_T, dG_HP_temp, dG_Lower_temp
     # runs Solve_IVP
     soln = solve_ivp(sitebal_r0, duration, theta0, t_eval=t_list, method='BDF')
     rates_array = np.array([rates_r0(time, theta) for time,theta in zip(t_list, soln.y.T)]) # creates an array of all rate values SPECIFICALLY at the times we actually want to use, not random times that solve_ivp used to solve the system. Feeds the 'rates' function the list of time values AND the theta values that solve_ivp solved for at those times
+    dG_used_list = [dGvt(t, dG_temp, dG_HP_temp, dG_Lower_temp, dG_Upper_temp) for t in t_list]
+    U_list = [eqpot(tta, GG) for tta,GG in zip(soln.y.T, dG_used_list)]
     
-    return (soln, rates_array, list_theta_star_all)
+    return (soln, rates_array, list_theta_star_all, U_list)
 
 
 def solver_and_processing(V_temp, dG_temp, beta_temp, k_V_temp, k_T_temp, dG_HP_temp, dG_Lower_temp, dG_Upper_temp):
@@ -437,16 +469,17 @@ def solver_and_processing(V_temp, dG_temp, beta_temp, k_V_temp, k_T_temp, dG_HP_
 
     try:
         
-        soln, rates_array, list_theta_star_all = Kinetics_Function(V_temp, dG_temp, beta_temp, k_V_temp, k_T_temp, dG_HP_temp, dG_Lower_temp, dG_Upper_temp)
+        soln, rates_array, list_theta_star_all, U_list = Kinetics_Function(V_temp, dG_temp, beta_temp, k_V_temp, k_T_temp, dG_HP_temp, dG_Lower_temp, dG_Upper_temp)
     
         ################################################ EXTRACTING SOLVER DATA ###############################################################################
         
-        # rate & current values
-        r_V_list = rates_array[:,0]
-        r_T_list = rates_array[:,1]
-        curr_V_list = -1000 * r_V_list * F
-        curr_T_list = -1000 * r_T_list * F      # multiply by 1000 to sonvert to mA
-        curr_list = curr_V_list + curr_T_list   # net current
+        # unpacking rate & current values
+        r_V_list = rates_array[:,0];         curr_V_list = -F * r_V_list
+        r_T_list = rates_array[:,1];         curr_T_list = -F * r_T_list
+        r_V_j0_list = rates_array[:,2];      curr_V_j0_list = -F * r_V_j0_list
+        r_V_exp1_list = rates_array[:,3];    curr_V_exp1_list = r_V_exp1_list
+        r_V_exp2_list = rates_array[:,4];    curr_V_exp2_list = r_V_exp2_list
+        net_curr_list = curr_V_list + curr_T_list   # net current
         
         # extracting coverage data
         theta_star_list = soln.y[0,:]
@@ -454,19 +487,23 @@ def solver_and_processing(V_temp, dG_temp, beta_temp, k_V_temp, k_T_temp, dG_HP_
         
         # if we end up shoehorning values, this will return the number of times it had to be done (0 if not at all): the more times, the more severe the "error" (though technically the system passes, it just took some fudging)
         fail_count = len([z for z in list_theta_star_all if z >= 1.0 or z <=0.0])
-        
-        #print("squawk1", GHad_t_eV)
-        
+       
         ################################################   PLOTS   ###############################################################################
         
         # calls the "normal_plots" function below to plot things like current vs V, coverage, etc (things we'd normally plot)
         if mode_normal == 1:
-            normal_plots(theta_star_list, theta_H_list, curr_list, curr_V_list, curr_T_list)
-            
+            normal_plots(theta_star_list, theta_H_list, r_V_list, r_T_list, net_curr_list, curr_V_list, curr_T_list, U_list)
+        
         # to get here, the solver must have been successful. So, this will add the dG and max-current value to a list in the "call-functions" section below, and since that list is used to make the static volcano plot, the plot will only be fed dG&current pairs from a successful trial
         # NOTE THAT IT TAKES A VOLMER CURRENT VALUE, NOT A NET CURRENT VALUE, also that it's using absolute values of the current
-        if mode_static_volcano == 1:
-             stat_volc_data.append((float(dG_temp / (e_charge * AvoNum)),   abs(float(curr_V_list[100])))) # converts dG_temp from J/mol to eV
+        if mode_static_volcano == 1:   # "SVD" = "static volcano data"
+            SVD1 = float(dG_temp / (e_charge * AvoNum))
+            SVD2 = float(curr_V_list[100])
+            SVD3 = float(curr_V_j0_list[100])
+            SVD4 = float(curr_V_exp1_list[100])
+            SVD5 = float(curr_V_exp2_list[100])
+            stat_volc_data.append((SVD1, SVD2, SVD3, SVD4, SVD5))
+            
         
         # creates dynamic volcano plots
         if mode_dynamic_volcano == 1:
@@ -605,86 +642,135 @@ def assign_color(fail_count, V_temp, dG_temp, beta_temp, k_V_temp, k_T_temp, dG_
 
 
 
+##################################################  PLOTS  ##############################################################
 
-##################################################  PLOTS ##############################################################
-
-def normal_plots(theta_star_list, theta_H_list, curr_list, curr_V_list, curr_T_list):
+def normal_plots(theta_star_list, theta_H_list, r_V_list, r_T_list, curr_list, curr_V_list, curr_T_list, U_list):
     
     # only makes plots if mode is set to normal
     if mode_normal == 1:
+        
         
         #########################################  Coverage  ####################################################
         
         # coverage vs t
         if show_cov_vs_t_plots == 1   or   save_cov_vs_t_plots == 1:
-            plt.plot(t_list[20:], theta_star_list[20:], 'm', label=r'$\theta_*$')
-            plt.plot(t_list[20:], theta_H_list[20:], 'b', label=r'$\theta_H$')
+            #plt.plot(t_list[20:], theta_star_list[20:], 'm', label=r'$\theta_*$')
+            plt.plot(t_list, theta_H_list, 'b', label=r'$\theta_H$')
             plt.title("Coverage vs Time\n" + loop_id_full)
             plt.xlabel('t');
-            plt.ylabel('coverage');   plt.ylim(0,1)
-            plt.grid();   plt.legend()
+            plt.ylabel('coverage')
+            #plt.ylim(0,1)
+            ax = plt.gca()
+            ax.yaxis.get_major_formatter().set_useOffset(False)
+            ax.yaxis.get_major_formatter().set_scientific(False)
+            plt.legend()
+            plt.grid()
             if show_cov_vs_t_plots == 1:   plt.show()
             plt.close()
         
         # coverage vs V
         if show_cov_vs_V_plots == 1   or   save_cov_vs_V_plots == 1:
-            plt.plot(V_list[20:], theta_star_list[20:], 'm', label=r'$\theta_*$')
-            plt.plot(V_list[20:], theta_H_list[20:], 'b', label=r'$\theta_H$')
+            plt.plot(V_list, theta_star_list, 'm', label=r'$\theta_*$')
+            plt.plot(V_list, theta_H_list, 'b', label=r'$\theta_H$')
             plt.title("Coverage vs V\n" + loop_id_full)
-            plt.xlabel('V');   plt.grid();   plt.legend()
-            plt.ylabel('coverage');   plt.ylim(0,1)
+            plt.xlabel('V')
+            plt.ylabel('coverage')
+            plt.ylim(0,1)
+            ax = plt.gca()
+            ax.yaxis.get_major_formatter().set_useOffset(False)
+            ax.yaxis.get_major_formatter().set_scientific(False)
+            plt.legend()
+            plt.grid()
             if show_cov_vs_V_plots == 1:   plt.show()
             plt.close()
         
         
-        #########################################  Positive Currents Only  ####################################################
+        #########################################   Rates   ##########################################
+        
+        # rate vs time
+        if show_rate_vs_t_plots == 1   or   save_rate_vs_t_plots == 1:
+            #plt.plot(t_list[20:], r_V_list[20:], 'm', label=r'$r_V$')
+            plt.plot(t_list, r_T_list, 'b', label=r'$r_T$')
+            plt.title("Rate vs time\n" + loop_id_full)
+            plt.xlabel('time (s)')
+            plt.ylabel('rate\n(allegedly mol/(s*cm2)')
+            ax = plt.gca()
+            ax.yaxis.get_major_formatter().set_useOffset(False)
+            ax.yaxis.get_major_formatter().set_scientific(False)
+            plt.legend()
+            plt.grid()
+            if show_rate_vs_t_plots == 1:   plt.show()
+            plt.close()
+        
+        
+        #########################################   Positive Currents Only   ####################################################
         
         
         # current vs t (current on x) (only positive current values)
         if show_xcurrent_vs_t_pos_plots == 1   or   save_xcurrent_vs_t_pos_plots == 1:
             #plt.plot(curr_list[20:], t_list[20:], 'black', label='net')
-            plt.plot(curr_V_list[20:], t_list[20:], 'r--', label='volmer')
+            plt.plot(curr_V_list, t_list, 'r--', label='volmer')
             #plt.plot(curr_T_list[20:], t_list[20:], 'y--', label='tafel')
             plt.title("Time vs Current\n" + loop_id_full)
             plt.xscale('log')
-            plt.xlabel('I (mA, not A)');   plt.ylabel('time (s)')
-            plt.grid();   plt.legend()
+            plt.xlabel('I (Amps, not mA)')
+            plt.ylabel('time (s)')
+            ax = plt.gca()
+            ax.yaxis.get_major_formatter().set_useOffset(False)
+            ax.yaxis.get_major_formatter().set_scientific(False)
+            plt.legend()
+            plt.grid()
             if show_xcurrent_vs_V_pos_plots == 1:   plt.show()
             plt.close()
     
         # current vs V (current on x) (only positive current values)
         if show_xcurrent_vs_V_pos_plots == 1   or   save_xcurrent_vs_V_pos_plots == 1:
             #plt.plot(curr_list[20:], V_list[20:], 'black', label='net')
-            plt.plot(curr_V_list[20:], V_list[20:], 'r--', label='volmer')
+            plt.plot(curr_V_list, V_list, 'r--', label='volmer')
             #plt.plot(curr_T_list[20:], V_list[20:], 'y--', label='tafel')
             plt.title("V vs Current\n" + loop_id_full)
             plt.xscale('log')
-            plt.xlabel('I (mA, not A)');   plt.ylabel('V')
-            plt.grid();   plt.legend()
+            plt.xlabel('I (Amps, not mA)')
+            plt.ylabel('V')
+            ax = plt.gca()
+            ax.yaxis.get_major_formatter().set_useOffset(False)
+            ax.yaxis.get_major_formatter().set_scientific(False)
+            plt.legend()
+            plt.grid()
             if show_xcurrent_vs_V_pos_plots == 1:   plt.show()
             plt.close()
         
         # current vs t (current on y) (only positive current values)
         if show_ycurrent_vs_t_pos_plots == 1   or   save_ycurrent_vs_t_pos_plots == 1:
             #plt.plot(t_list[20:], curr_list[20:], 'black', label='net')
-            plt.plot(t_list[20:], curr_V_list[20:], 'r--', label='volmer')
+            plt.plot(t_list, curr_V_list, 'r--', label='volmer')
             #plt.plot(t_list[20:], curr_T_list[20:], 'y--', label='tafel')
             plt.title("Current vs Time\n" + loop_id_full)
-            plt.xlabel('t');   plt.ylabel('I (mA, not A)')
+            plt.xlabel('t')
+            plt.ylabel('I (Amps, not mA)')
             plt.yscale('log')
-            plt.grid();   plt.legend()
-            if show_ycurrent_vs_V_pos_plots == 1:   plt.show()
+            ax = plt.gca()
+            ax.yaxis.get_major_formatter().set_useOffset(False)
+            ax.yaxis.get_major_formatter().set_scientific(False)
+            plt.legend()
+            plt.grid()
+            if show_ycurrent_vs_t_pos_plots == 1:   plt.show()
             plt.close()
     
         # current vs V (current on y) (only positive current values)
         if show_ycurrent_vs_V_pos_plots == 1 or save_ycurrent_vs_V_pos_plots == 1:
             #plt.plot(V_list[20:], curr_list[20:], 'black', label='net')
-            plt.plot(V_list[20:], curr_V_list[20:], 'r--', label='volmer')
+            plt.plot(V_list, curr_V_list, 'r--', label='volmer')
             #plt.plot(V_list[20:], curr_T_list[20:], 'y--', label='tafel')
             plt.title("Current vs V\n" + loop_id_full)
-            plt.xlabel('V');     plt.ylabel('I (mA, not A)')
+            plt.ylabel('I (Amps, not mA)')
+            plt.xlabel('V')
             plt.yscale('log')
-            plt.grid();     plt.legend()
+            ax = plt.gca()
+            ax.yaxis.get_major_formatter().set_useOffset(False)
+            ax.yaxis.get_major_formatter().set_scientific(False)
+            plt.legend()
+            plt.grid()
             if show_ycurrent_vs_V_pos_plots == 1:   plt.show()
             plt.close()
 
@@ -694,51 +780,89 @@ def normal_plots(theta_star_list, theta_H_list, curr_list, curr_V_list, curr_T_l
         # current vs t (current on x) (positive and negative current values)
         if show_xcurrent_vs_t_full_plots == 1   or   save_xcurrent_vs_t_full_plots == 1:
             #plt.plot(curr_list[20:], t_list[20:], 'black', label='net')
-            plt.plot(curr_V_list[20:], t_list[20:], 'r--', label='volmer')
+            plt.plot(curr_V_list, t_list, 'r--', label='volmer')
             #plt.plot(curr_T_list[20:], t_list[20:], 'y--', label='tafel')
             plt.title("Time vs Current\n" + loop_id_full)
             plt.xscale('symlog', linthresh=1e-2)
-            plt.xlabel('I (mA, not A)');   plt.ylabel('time (s)')
-            plt.grid();   plt.legend()
-            if show_xcurrent_vs_V_full_plots == 1:   plt.show()
+            plt.xlabel('I (Amps, not mA)')
+            plt.ylabel('time (s)')
+            ax = plt.gca()
+            ax.yaxis.get_major_formatter().set_useOffset(False)
+            ax.yaxis.get_major_formatter().set_scientific(False)
+            plt.legend()
+            plt.grid()
+            if show_xcurrent_vs_t_full_plots == 1:   plt.show()
             plt.close()
         
         # current vs V (current on x) (positive and negative current values)
         if show_xcurrent_vs_V_full_plots == 1   or   save_xcurrent_vs_V_full_plots == 1:
             #plt.plot(curr_list[20:], V_list[20:], 'black', label='net')
-            plt.plot(curr_V_list[20:], V_list[20:], 'r--', label='volmer')
+            plt.plot(curr_V_list, V_list, 'r--', label='volmer')
             #plt.plot(curr_T_list[20:], V_list[20:], 'y--', label='tafel')
             plt.title("V vs Current\n" + loop_id_full)
             plt.xscale('symlog', linthresh=1e-2)
-            plt.xlabel('I (mA, not A)');   plt.ylabel('V')
-            plt.grid();   plt.legend()
+            plt.xlabel('I (Amps, not mA)')
+            plt.ylabel('V')
+            ax = plt.gca()
+            ax.yaxis.get_major_formatter().set_useOffset(False)
+            ax.yaxis.get_major_formatter().set_scientific(False)
+            plt.legend()
+            plt.grid()
             if show_xcurrent_vs_V_full_plots == 1:   plt.show()
             plt.close()
-        
+         
         # current vs t (current on y) (positive and negative current values)
         if show_ycurrent_vs_t_full_plots == 1   or   save_ycurrent_vs_t_full_plots == 1:
             #plt.plot(t_list[20:], curr_list[20:], 'black', label='net')
-            plt.plot(t_list[20:], curr_V_list[20:], 'r--', label='volmer')
+            plt.plot(t_list, curr_V_list, 'r--', label='volmer')
             #plt.plot(t_list[20:], curr_T_list[20:], 'y--', label='tafel')
             plt.title("Current vs Time\n" + loop_id_full)
-            plt.yscale('symlog', linthresh=1e-3)
-            plt.xlabel('t');   plt.ylabel('I (mA, not A)')
-            plt.grid();   plt.legend()
-            if show_ycurrent_vs_V_full_plots == 1:   plt.show()
+            ax = plt.gca()
+            ax.yaxis.get_major_formatter().set_useOffset(False)
+            ax.yaxis.get_major_formatter().set_scientific(True)
+            #plt.yscale('symlog', linthresh=1e-3)
+            plt.xlabel('t')
+            plt.ylabel('I (Amps, not mA)')
+            ax = plt.gca()
+            ax.yaxis.get_major_formatter().set_useOffset(False)
+            ax.yaxis.get_major_formatter().set_scientific(False)
+            plt.legend()
+            plt.grid()
+            if show_ycurrent_vs_t_full_plots == 1:   plt.show()
             plt.close()
         
         # current vs V (current on y) (positive and negative current values)
         if show_ycurrent_vs_V_full_plots == 1 or save_ycurrent_vs_V_full_plots == 1:
             #plt.plot(V_list[20:], curr_list[20:], 'black', label='net')
-            plt.plot(V_list[20:], curr_V_list[20:], 'r--', label='volmer')
+            plt.plot(V_list, curr_V_list, 'r--', label='volmer')
             #plt.plot(V_list[20:], curr_T_list[20:], 'y--', label='tafel')
             plt.yscale('symlog', linthresh=1e-3)
             plt.title("Current vs V\n" + loop_id_full)
-            plt.xlabel('V');   plt.ylabel('I (mA, not A)')
-            plt.grid();   plt.legend()
+            plt.xlabel('V')
+            plt.ylabel('I (Amps, not mA)')
+            ax = plt.gca()
+            ax.yaxis.get_major_formatter().set_useOffset(False)
+            ax.yaxis.get_major_formatter().set_scientific(False)
+            plt.legend()
+            plt.grid()
             if show_ycurrent_vs_V_full_plots == 1:   plt.show()
             plt.close()
-     
+            
+            
+        ############################   Eq Potential  ########################################
+        if show_eqpot_plots == 1:
+            plt.plot(t_list, U_list)
+            plt.title("EqPotential vs time\n" + loop_id_full)
+            plt.xlabel('time (s)')
+            plt.ylabel('EqPotential (V)')
+            ax = plt.gca()
+            ax.yaxis.get_major_formatter().set_useOffset(False)
+            ax.yaxis.get_major_formatter().set_scientific(False)
+            plt.legend()
+            plt.grid()
+            if show_eqpot_plots == 1:   plt.show()
+            plt.close()
+            
 
 # makes pass/fail scatter plots for V & beta combinations at given kV&kT values (for now, only one color per chart: we here at CatCo appologize for the inconvenience)
 # only saves and/or prints an individual color plot if the respective yes/no value is set to 1 AND IF there are any values to actually show
@@ -789,6 +913,8 @@ def combined_plots(color_dict, V_temp, dG_temp, beta_temp, k_V_temp, k_T_temp, d
 def static_volcano_plots(stat_volc_data, V_temp, beta_temp, k_V_temp, k_T_temp,  dG_HP_temp, dG_Lower_temp, dG_Upper_temp):
     print('Running "static_volcano_plots" ')
     
+    ##################################################   SETUP   ####################################################
+    
     # creates a title add on with every parameter except dG (cuz that doesn't make sense)
     # stops 1 short of adding the VPD[0] parameter name, since the "dG(max) vs parameter" plot doesn't use it (the "max currentvs dG" plot does use it, so it's only added within that loop)
     loop_id_static = loop_id_constants   # resets the full title addon for each combination
@@ -802,11 +928,17 @@ def static_volcano_plots(stat_volc_data, V_temp, beta_temp, k_V_temp, k_T_temp, 
     
     # unpacks the dG and current data
     if len(stat_volc_data) > 0:
-        dGs, currs = zip(*stat_volc_data)
-        max_curr = max(currs);   max_dG = dGs[currs.index(max_curr)]
+        dGs, currs, currs_j0, currs_exp1, currs_exp2 = zip(*stat_volc_data)
+        max_curr = max(currs);   max_dG = dGs[currs.index(max_curr)]   # locatess the maximum current out of ALL the maximum current, and the dG setting at which it occured
+        j0_X_exp1 = [currs_j0[i] * currs_exp1[i] for i in range(0,len(currs_j0))]    # multiples j0 by exp1
+        j0_X_exp2 = [currs_j0[i] * currs_exp2[i] for i in range(0,len(currs_j0))]    # multiples j0 by exp2
         stat_volc_max_curr_data.append((k, max_dG))
-        
-    # creates max current vs dG plots
+       
+    
+    
+    #########################################   max current(s) vs dG plots   ###################################
+    
+    # creates max current vs dG plots (and the current components, if you want)
     if (show_max_curr_vs_dG_plot == 1):
     
         # if ALL parameter combos failed, stat_volc_data will have no contents: this prints a plot with that message
@@ -817,14 +949,63 @@ def static_volcano_plots(stat_volc_data, V_temp, beta_temp, k_V_temp, k_T_temp, 
                 return
         
         # scary volcano plot: beware suspicious magma flows
+        # static volcano plot showing max current at each dG along with any max-current components (like exchange current density or the exponential parts)
         plt.figure(figsize=(10, 6))
-        plt.plot(dGs, currs, marker='o', label=f"{len(dGs)}/{len(dG_vals)} iterations successful")
+        if SVP_j0 == 1:   plt.plot(dGs, currs_j0, marker="o", color="cyan", label="j0")
+        if SVP_j0_X_exp1 == 1:   plt.plot(dGs, j0_X_exp1, marker="o", linestyle="", color="magenta", label="j0 * exp1")
+        if SVP_j0_X_exp2 == 1:   plt.plot(dGs, j0_X_exp2, marker="o", linestyle="", color="orange", label="j0 * exp2")
+        plt.plot(dGs, currs, marker="o", linestyle="", color="black", label=f"Max Current\n({len(dGs)}/{len(dG_vals)} successful)")
         plt.plot(max_dG, max_curr, marker='o', color='red', label=f'Max: ({max_dG:.2}, {max_curr:.3})')
+        
         plt.xlabel("GHad (eV)");     plt.xlim(dG_eV_min-0.05, dG_eV_max+0.05)
         plt.ylabel("Max |Current Density| (mA/cm²)")
         plt.title(f"Max Current Density vs GHad (Static Volcano)\n {loop_id_static} {VPD[1]['title_abbrev']} = {k:.2}")
-        plt.grid(True);     plt.legend();     plt.tight_layout()
+        plt.grid(True)
+        plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
         plt.show()
+        
+    ##########################   standalone max current plots   ###################################
+    
+    # # max current vs dG
+    # if show_max_curr_vs_dG_plot == 1:
+    #     plt.plot(dGs, currs, marker="o", linestyle="", color="black")
+    #     plt.plot(max_dG, max_curr, marker='o', color='red', label=f'Max: ({max_dG:.2}, {max_curr:.3})')
+    #     plt.xlabel("GHad (eV)");     plt.xlim(dG_eV_min-0.05, dG_eV_max+0.05)
+    #     plt.ylabel("Max |Current Density| (mA/cm²)")
+    #     plt.title(f"Max Current Density vs GHad (Static Volcano)\n {loop_id_static} {VPD[1]['title_abbrev']} = {k:.2}")
+    #     plt.grid(True)
+    #     plt.legend()
+    #     plt.show()
+    
+    # j0 vs dG
+    if show_max_j0_curr_vs_dG_plot == 1:
+        plt.plot(dGs, currs_j0, marker="o", linestyle="", color="cyan")
+        plt.xlabel("GHad (eV)");     plt.xlim(dG_eV_min-0.05, dG_eV_max+0.05)
+        plt.ylabel("Exchange Current Density\nof Max current (mA/cm²)")
+        plt.title(f"j0 of Max Current Density vs GHad (Static Volcano)\n {loop_id_static} {VPD[1]['title_abbrev']} = {k:.2}")
+        plt.grid(True)
+        plt.show()
+        
+    # j0*exp1 vs dG
+    if show_max_exp1_curr_vs_dG_plot == 1:
+        plt.plot(dGs, currs_exp1, marker="o", linestyle="", color="magenta")
+        plt.xlabel("GHad (eV)");     plt.xlim(dG_eV_min-0.05, dG_eV_max+0.05)
+        plt.ylabel("j0*exp1 (mA/cm²)")
+        plt.title(f"j0*exp1 of Max Current Density vs GHad (Static Volcano)\n {loop_id_static} {VPD[1]['title_abbrev']} = {k:.2}")
+        plt.grid(True)
+        plt.show()
+        
+    # j0*exp2 vs dG    
+    if show_max_exp2_curr_vs_dG_plot == 1:
+        plt.plot(dGs, currs_exp2, marker="o", linestyle="", color="orange")
+        plt.xlabel("GHad (eV)");     plt.xlim(dG_eV_min-0.05, dG_eV_max+0.05)
+        plt.ylabel("j0*exp2 (mA/cm²)")
+        plt.title(f"j0*exp2 of Max Current Density vs GHad (Static Volcano)\n {loop_id_static} {VPD[1]['title_abbrev']} = {k:.2}")
+        plt.grid(True)
+        plt.show()
+
+    
+    ################################   testing effect of paramterson dG(max) position   ############################
 
     # for plotting how parameter values affect MAX current values
     # one of the if statements below makes it so that this is only plotted for when the asdafdsdsfs loop ends
@@ -838,12 +1019,16 @@ def static_volcano_plots(stat_volc_data, V_temp, beta_temp, k_V_temp, k_T_temp, 
         plt.plot(max_params, dG_maxes, label = f"{len(dG_maxes)}/{len(VPD[1]['param_values'])} available")
         plt.scatter(max_params, dG_maxes)
         plt.title(f"'$\\Delta G$ of max current'  vs  $k_V$/$k_T$ \n{loop_id_static}")
-        plt.xlabel(f"$k_V$/$k_T$")
+        plt.xlabel("$k_V$/$k_T$")
         plt.xscale('log')
         plt.ylabel("$\\Delta G$ (eV)")
         plt.legend();     plt.grid(True)
         plt.show()
     
+
+    
+
+
 
 
 # Creates duel plots so we can track time, dG, and current at the same time
@@ -954,9 +1139,9 @@ subfolders_plots, subfolders_lists = create_folders()
 
  
 # creates a list of Vapp values at each time stamp in our official time list
-V_list = [V_vals[0] for i in t_list]
-'''delete the two lines below if no issues pop up with voltage by 5/21'''
-
+# V_list = [V_vals[0] for i in t_list]
+V_list = [potential(t, V_temp) for t in t_list]
+shmoop = V_list
 
 # prints dG vs t plot, only once at the beginning
 # this is in "check_check": can't possibly print unless dG_HP is static
@@ -1100,7 +1285,7 @@ for i in VPD[3]['param_values']:
                 alphabet = [i, j, k, m] # for title stuff'
                 for z in range(0, len(alphabet)):
                     param = VPD[len(VPD)-z-1]
-                    if param['param_name'] in ('dG_Lower', 'dG_Upper'):
+                    if param['param_name'] in ('dG', 'dG_Lower', 'dG_Upper'):
                         loop_id_full += f"{param['title_abbrev']} = {(alphabet[z] / (e_charge * AvoNum)) :.2}   "
                     else:
                         loop_id_full += f"{param['title_abbrev']} = {alphabet[z] :.2}   "
@@ -1162,54 +1347,4 @@ for i in 'a':
     print("\nCurrent working directory (where the plots were saved to):", os.getcwd())
     print(f"\nExecution time: {end - start:.2f} seconds for {number_of_combos} combinations")
     
-    
-    '''come back and edit this to make the code be able to vary more than 2 parameters at once'''
-    
-    '''Notes for Alex'''       
-    
-    
-        
-
-
-
-
-''' checlist '''
-#mak dG max plot things Maureen pointed to
-# add stuff to github and organize
-# figure out a final answer for the "VPD & VPD_all" issue
-# make a thing so that V_vals takes out V=0 entries
-# checkl out VPD_all in combined plots
-# have printout show order that params are being varied
-# put a setting in that would let Alex set his graph size parameters (figure size?) and save and properly display them with his Mac
-# consider getting rid of color plots solo
-# maybe make a "kV & kT pairs" function to make kV and kT value lists to iterate through that only have value pairs we know will work
-# take out -0.5 and -0.4 V and 0V
-# edit name of GHad stuf to dG???
-# mae a paramter: len(t_all)/len(t_list), which grades how stable the solver is: if the value is high, the solver takes too long
-# make a way for fail_count to be determined by number of iterations taken to solve issue, OR be based on coverage values like it is now
-'''on pass/fail plots, the y-axis variable varies with every single iteration, THEN the x-axis'''''
-# maybe in the combined plots legend, we can list the number of points of that color out of all points (like "pass (82/100)")
-# make "this parameter cannot vary with time" checkchecks
-# probably need ot make a way that dG or V can be negative and still not vary with time
-
-
-''' Alex Conversation '''
-#plan to verify my Kinetics Functions are correct
-# what Alex has as "period" is actually a helf period, correct that
-# scanrate split
-# is volmer current just kinetic current
-# why doesn't the code work when V = 0 exactly
-'''important note: just because a log of a negative is taken, that does not immediately kill the code. It DOES trigger a RUNTIME WARNING, but that just means that the value the log was used to calculate will be marked as NAN or INF. That value can then be used in whatever calculations you want (like x = y*log(-5) = y*NAN), it will just cause any new values calculated using that NAN to become NAN as well. THE ONLY REASON any of this would cause a "Value '''
-'''Alex's k values might be wrong according to Maureen'''
-'''what values that Alex found should I stick with permanently'''
-# for dG switching, do the two dG values need to be symmetric about dG=0? Or coupled in any way?
-
-
-''' GitHub Notes '''
-# to make static volcano possible: the Main Function was edited in the "rates" function with an if statement that feeds a static values or calls the "potential" function based on the parameter settings
-# similar to the above, dynamic volcano required putting an if statement in the rates function for whtether or not to call dGvt funciton
-# also stitched in the updated dGvt function and time points list: dG switch period is now linked to the frequency of time points
-''' MIGHT BITE ME IN THE BUTT LATER:  changed "assign_color" to make it so the dG value added to a dictionary is in eV, not J/mol'''
-# time list stuff is now at the end of Unholy Parameters to make sure everything is activated before deciding which scanrate to use
-# split time step stuff into for V or dG varying, but got rid or parameter-specific time stuff: now, only "scanrate" stuff is created depending on the parameters we vary
-# added "dG_cycles" to couple max_time and dG_half_period
+ 
