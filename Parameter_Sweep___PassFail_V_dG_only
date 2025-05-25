@@ -1,0 +1,339 @@
+'''all V and dG testing stuff is at the bottom'''
+'''make sure to se "exist_ok" to "False" when testing for realsies'''
+'''make sure to set the "current directory" being used to where you want the files saved: the code will take care of the rest'''
+import numpy as np
+from scipy.integrate import solve_ivp
+import matplotlib.pyplot as plt
+import os, time, json, pickle, csv
+import pandas as pd
+plt.rcParams.update({'font.size': 14})
+start = time.time()
+
+
+
+###########################################################################################################################
+max_count = 500
+show_Coverage_vs_V = 0;   show_kcurr_vs_V = 0
+show_Coverage_vs_t = 0;   show_kcurr_vs_t = 0
+
+
+
+
+# file types to save data as
+save_as_csv = 0;   save_as_1 = 0;   save_as_1 = 0;   save_as_1 = 0
+
+# individual colors to save the data of
+save_data_pass = 0;   save_data_y = 0;   save_data_o = 0;   save_data_r = 1;   save_data_b = 0;   save_data_pink = 0
+
+# individual colors to save the plots of
+save_plot_pass = 0;   save_plot_y = 0;   save_plot_o = 0;   save_plot_r = 1;   save_plot_b = 0;   save_plot_pink = 0
+
+# show or not show individual color plots (they are still saved no matter what)
+show_plot_pass = 0;   show_plot_y = 0;   show_plot_o = 0;   show_plot_r = 1;   show_plot_b = 0;   show_plot_pink = 0
+
+# which colors to include in the combined plots
+combined_pass = 1;   combined_y = 1;   combined_o = 1;   combined_r = 1;   combined_b = 1;   combined_pink = 1
+save_combined_plot = 1;   show_combined_plot = 1
+
+
+
+###########################################################################################################################
+###########################################################################################################################
+####################################################### PARAMETERS ########################################################
+###########################################################################################################################
+###########################################################################################################################
+
+# Physical Constants
+RT = 8.314*298 #ideal gas law times temperature
+F = 96485.0 #Faraday constant, C/mol
+cmax = 7.5*10e-10 #mol*cm-2*s-1
+dG = -0.3
+dG = dG * 1.602 * 10**-19 * 6.023 * 10**23
+
+# parameters, time, and voltage stuff
+partialPH2 = 1
+beta = 0.5
+UpperV = 1
+LowerV = 0
+scanrate = 0.025 #scan rate in V/s
+timestep = 0.01
+timescan = 30 #seconds
+t = np.arange(0.0, timescan, scanrate)
+endtime = t[-1]
+duration = [0, endtime]
+
+# iniditial conditions (or "inconds" if you're cool enough to say it)
+thetaA_H0 = 0.99  # Initial coverage of Hads, needs to be high as this is reduction forward
+thetaA_Star0 = 1.0 - thetaA_H0  # Initial coverage of empty sites
+theta0 = np.array([thetaA_Star0, thetaA_H0])
+
+
+
+############################################################################################################################
+############################################################################################################################
+########################################################## FUNCTIONS #######################################################
+############################################################################################################################
+############################################################################################################################
+
+# this is the "rates", "site_balance", "eqpot" code we've been developing
+# depending how this function passes/fails, it'll return a specific value that will be color coded for marking on he plots
+def Test_Function(V_thisloop, dG_thisloop, k_V, k_T):
+    
+    '''here so they reset every loop'''
+    list_theta_star_all = [];   list_theta_H_all = []
+    count = 0 # adds +1 every loop: if it goes over max_count, we consider it to be non-coverging, and it returns a failure
+
+    #Linear sweep voltammetry- defining a potential as a function of time
+    def potential(x):
+        return V_thisloop
+    def dGvt(t):
+        return dG_thisloop
+    
+    #Function to calculate U and Keq from theta, dG
+    def eqpot(theta, GHad):
+        #print("eqpot")
+        #print("theta_star:", theta[0], ",  theta_H:", theta[1])
+        theta = np.asarray(theta)
+        thetaA_Star, thetaA_H = theta # unpack surface coverage
+        U0 = (-GHad/F) + (RT*np.log(thetaA_Star/thetaA_H))/F
+        #print("U0:", U0)
+        
+        #U relies on the free energy of hydrogen adsorption plus the log of surface coverage (considered a concentration)
+        return U0
+    
+    #reduction is FORWARD, oxidation is REVERSE, all variables are consistent with this
+    def rates_r0(t, theta):
+        #print("rate")
+        theta = np.asarray(theta)
+        thetaA_star, thetaA_H = theta #surface coverages again, acting as concentrations
+        V = potential(t)  # Use t directly (scalar)
+        GHad = F * dGvt(t)  # Get the current dG value based on time
+        U0 = eqpot(theta, GHad) #call function to find U for given theta
+        #print("backtorate")
+        ##Volmer Rate Equation
+        r_V = k_V * (thetaA_star ** (1 - beta)) * (thetaA_H ** beta) * np.exp(beta * GHad / RT) * (np.exp(-(beta) * F * (V - U0) / RT) - np.exp((1 - beta) * F * (V - U0) / RT))
+        
+        ##Tafel Rate equation
+        ##Tafel does not contribute to kinetic current, but does affect coverage of adsorbed hydrogen and free sites
+        r_T = k_T * ((thetaA_H **2) - (partialPH2 * (thetaA_star ** 2) * np.exp((-2*GHad) / RT)))
+        return r_V, r_T
+    
+    def sitebal_r0(t, theta):
+        nonlocal count # tell's Python "this is the 'count' we created earlier, not a new object"
+        count += 1
+        if count > max_count:
+            print("Exceeded max_count, returning fail")
+            return()
+        
+        #print("site")
+        list_theta_star_all.append(theta[0])
+        list_theta_H_all.append(theta[1])
+        #print("time:", t)
+
+        r_V, r_T = rates_r0(t, theta)
+        thetaStar_rate = ((-2*r_V) + r_T) / cmax
+        thetaH_rate = ((2*r_V) - r_T) / cmax
+        dthetadt = [(thetaStar_rate), thetaH_rate] # [0 = star, 1 = H]
+        #print("backtosite")
+        return dthetadt
+    
+    
+    
+    ############################################################################################################################################################
+    ################################################ SOLVER & PASS/FAIL ANALYSIS ###############################################################################
+    ############################################################################################################################################################
+    
+    # # setup for extraction and plotting
+    # V = np.array([potential(ti) for ti in t])
+    # curr1 = np.empty(len(t), dtype=object)
+    # tcurr1= np.empty(len(t), dtype=object)
+
+    '''the "cov_fails" value assigned in this seciton indicates the error type (no convergence, ValueError, # times shoehorned, etc'''
+    '''for now: -1=pink (other), -2=red (ValueError(matherror)), -3=black (no converge)'''
+    cov_fails = -1 # sets "other error" as the default: if this doesn't change by the end of the code, that's what will be returned
+    try:
+        soln = solve_ivp(sitebal_r0, duration, theta0, t_eval=t, method='BDF')
+        if soln.success == True:
+            
+            # Extract values
+            thetaA_Star = soln.y[0, :];     thetaA_H = soln.y[1, :]
+            r0_vals = np.array([rates_r0(time, theta) for time, theta in zip(t, soln.y.T)])  #calculates rate based on theta values calculated during odeint, zips it with time given from potential(x) function
+            volmer_rate = r0_vals[:, 0];     #tafel_rate = r0_vals[:, 1]
+            curr1 = r0_vals[:, 0] * -F
+            
+            # if we end up shoehorning values, this will return the number of times it had to be done (0 if not at all): the more times, the more severe the "error" (though technically the system passes, it just took some fudging)
+            cov_fails = len([z for z in list_theta_star_all if z >= 1.0 or z <=0.0])
+
+        # if max_count was exceeded, this returns a "does not converge" error
+        elif count > max_count:
+            print('Solver did not converge in time');     cov_fails = -3
+
+    # if Python has a math error (like natural log of a negative number), this returns a "red" error
+    except ValueError as error:
+        print('Solver crashed: Value Error');     cov_fails = -2
+        
+    # cov_fails was not changed from the default: a "pink" error (should always be -1, nice and easy to remember which is good cuz we'll always need an "other" category)
+    if cov_fails == -1:   print("Unexpected Error")
+    
+    return(cov_fails)
+
+
+# creates folders to hold data for stuff and things
+def create_folders():
+    subfolders_plots = {
+        "summary_plots": "summary_plots",   "passes": "passes",   "yellow": "fails_yellow",   "orange": "fails_orange",   "red": "fails_red",   "black": "fails_black",   "pink": "fails_pink"}
+    subfolders_lists = {
+        "complete_lists": "complete_lists",   "passes": "passes",   "yellow_fails": "fails_yellow",   "orange_fails": "fails_orange",   "red_fails": "fails_red",   "black_fails": "fails_black",   "pink_fails": "fails_pink"}
+    '''the things below should be set to "False" when actually running the code for realsies: otherwise, files from previous trials willl be ocverwritten'''
+    
+    current_directory = os.getcwd()
+    
+    for folder in subfolders_plots.values():
+        os.makedirs(os.path.join("plots", folder), exist_ok=True)
+    for folder in subfolders_lists.values():
+        os.makedirs(os.path.join("lists", folder), exist_ok=True)
+    return(subfolders_plots, subfolders_lists)
+
+
+# creates color dictionaries with empty V&dG lists, plot values, etc
+'''if you want to collect and save a new set of data, or change anything reall, probably start by editing this'''
+def make_dict():
+    dict_pass = {"color":"blue",   "V_list":[],   "dG_list":[],   "marker":"o",   "alpha":1,   'label':'pass',   "title":"passes",   "folders_name":'passes',   'save_plot':save_plot_pass,   'save_data':save_data_pass,   'show_plot':show_plot_pass,   'combined_show':combined_pass}
+    dict_Y = {"color":"yellow",   "V_list":[],   "dG_list":[],   "marker":"x",   "alpha":1,   'label':'y',   "title":"yellow_fails",   "folders_name":'fails_yellow',   'save_plot':save_plot_y,   'save_data':save_data_y,   'show_plot':show_plot_y,   'combined_show':combined_y}
+    dict_O = {"color":"orange",   "V_list":[],   "dG_list":[],   "marker":"x",   "alpha":1,   'label':'o',   "title":"orange_fails",   "folders_name":'fails_orange',   'save_plot':save_plot_o,   'save_data':save_data_o,   'show_plot':show_plot_o,   'combined_show':combined_o}
+    dict_R = {"color":"red",   "V_list":[],   "dG_list":[],   "marker":"x",   "alpha":1,   'label':'ValueError',   "title":"red_fails",   "folders_name":'fails_red',   'save_plot':save_plot_r,   'save_data':save_data_r,   'show_plot':show_plot_r,   'combined_show':combined_r}
+    dict_B = {"color":"black",   "V_list":[],   "dG_list":[],   "marker":"x",   "alpha":0.4,   'label':'DNC',   "title":"black_fails",   "folders_name":'fails_black',   'save_plot':save_plot_b,   'save_data':save_data_b,   'show_plot':show_plot_b,   'combined_show':combined_b}
+    dict_P = {"color":"pink",   "V_list":[],   "dG_list":[],   "marker":"x",   "alpha":1,   'label':'Other Error',   "title":"pink_fails",   "folders_name":'fails_pink',   'save_plot':save_plot_pink,   'save_data':save_data_pink,   'show_plot':show_plot_pink,   'combined_show':combined_pink}
+    return(dict_pass, dict_Y, dict_O, dict_R, dict_B, dict_P)
+
+
+# makes pass/fail scatter plots for V&dG combinations at given kV&kT values (for now, only one color per chart: we here at CatCo appologize for the inconvenience)
+# only saves and/or prints an individual color plot if the respective yes/no value is set to 1 AND IF there are any values to actually show
+def color_plots(color):
+    if len(color['dG_list']) > 0     and     ( color['show_plot']==1     or     color['save_plot']==1 ):
+        plt.scatter(color['dG_list'], color['V_list'], marker=color['marker'], color=color['color'], alpha=color['alpha'])
+        plt.title(f"Only {color['title']} of $\Delta G$ & V combinations\n kV={k_V:.2e}, kT={k_T:.2e}")
+        plt.xlabel('$\Delta G$');   plt.ylabel('V');   plt.xlim(dG_min-0.1, dG_max+0.1);   plt.ylim(V_min-0.1, V_max+0.1)
+        if color['save_plot'] == 1:   plt.savefig(os.path.join("plots", color['folders_name'], f"{loop_id}.png"))
+        if color['show_plot'] == 1:   plt.show()
+        plt.close()
+
+
+# combined plots automatically save (for now)
+def combined_plots(color_dict):
+    title_add = '';   color_count = 0 # both are for the plot title: gotta be fresh and stylish (if all colors are plotted, title just says "all" instead of listing individual colors)
+    for color in color_dict.values():
+        if len(color['dG_list']) > 0     and     color['combined_show'] == 1:
+            color_count += 1
+            title_add += f"{ color['color']} "
+            plt.scatter(color['dG_list'], color['V_list'], marker=color['marker'], color=color['color'], alpha=color['alpha'], label=color['label'])
+    if color_count == len(color_dict):   title_add = 'all)'
+    title = f"Pass/Fails of $\Delta G$ & V combinations ({title_add})\n kV={k_V:.2e}, kT={k_T:.2e})"
+    plt.title(title);   plt.xlabel('$\Delta G$');   plt.ylabel('V');   plt.legend(loc = "best")
+    plt.xlim(dG_min-0.1, dG_max+0.1);   plt.ylim(V_min-0.1, V_max+0.1)
+    if save_combined_plot == 1:   plt.savefig(os.path.join("plots", "summary_plots", f"summary_{loop_id}.png"))
+    if show_combined_plot == 1:   plt.show()
+    plt.close()
+
+
+# "ranks" the severity of any failures and color codes them
+def assign_color(cov_fails):
+    if cov_fails == 0:
+        dict_pass['V_list'].append(Vi);   dict_pass['dG_list'].append(dGj)
+    if cov_fails > 0 and cov_fails <= 5:
+        dict_Y['V_list'].append(Vi);   dict_Y['dG_list'].append(dGj)
+    if cov_fails > 5:
+        dict_O['V_list'].append(Vi);   dict_O['dG_list'].append(dGj)
+    if cov_fails == -2:
+        dict_R['V_list'].append(Vi);   dict_R['dG_list'].append(dGj)
+    if cov_fails == -3:
+        dict_B['V_list'].append(Vi);   dict_B['dG_list'].append(dGj)
+    if cov_fails == -1:
+        dict_P['V_list'].append(Vi);   dict_P['dG_list'].append(dGj)
+
+
+# for each color, this gets sent a list of V & list of dG values to combine (other data types might get added)
+# once all V and dG values are ran through, this combines each V and dG set into a two-columned array, then, this saves the pass/fail ranked lists to a folder
+def saving_test_data(color):
+    if color['save_data'] == 1:
+        data = np.column_stack((color['V_list'], color['dG_list']))
+        pd.DataFrame(data).to_csv(os.path.join("lists", color['folders_name'], f"{loop_id}.csv"), index=True)  
+
+
+
+###########################################################################################################################
+###########################################################################################################################
+################################################   TESING LOOP   ##################################################
+###########################################################################################################################
+###########################################################################################################################
+
+evals = 0 # prints to easily check progress in terminal
+
+'''value ranges to sweep through'''
+V_min = -0.5;   V_max = 0.1;    V_step = 0.1
+dG_min = -2;    dG_max = 1;     dG_step = 0.1
+V_vals = np.arange(V_min, V_max, V_step)
+dG_vals = np.arange(dG_min, dG_max, dG_step)
+k_V_vals = [0.0001, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000, 100000] # note: NOT multiplied by cmax yet
+'''Alex and Maureen said us kT=10^4, and I shall obey'''
+k_T_vals = [10**4] # note: NOT multiplied by cmax yet
+k_V_vals = [i*cmax for i in k_V_vals]   # multiplies k vals by cmax
+k_T_vals = [i*cmax for i in k_T_vals]   # multiplies k vals by cmax
+
+# dictionaries containing the names of the subfolders being created (like "yellow_fails") in both a "plots" and "lists" (could be changed to "data") folders in the current directory
+# this needs to (or should) be before any loops because the values inside it are used to fill out part of each color's dictionary
+subfolders_plots, subfolders_lists = create_folders()
+
+
+
+
+'''THE BIG BOI: runs through values of kV & kT: for each combo, runs through V & dG values and makes plots'''
+for m in range (0, len(k_V_vals)):
+    k_V = k_V_vals[m]
+    
+    for n in range (0, len(k_T_vals)):
+        k_T = k_T_vals[n]
+        loop_id = f"kV_{k_V:.2e}_kT_{k_T:.2e}"  # SOOPER IMPORTANT: when saving data sets and plots, this gives each a unique name
+        dict_pass, dict_Y, dict_O, dict_R, dict_B, dict_P = make_dict()   # calls the function to create dictionaries for all colors that contain empty V & dG lists, as well as plot parameters and stuff
+        
+        for i in range(0, len(V_vals)):
+            Vi = V_vals[i]
+            
+            for j in range(0, len(dG_vals)):
+                dGj = dG_vals[j]
+                evals += 1 # for visually seeing how far along the code is
+                
+                # calls the big function
+                cov_fails = Test_Function(Vi, dGj, k_V, k_T)
+                print("Eval #", evals,   "\nkV =", k_V,   "k_T =", k_T,   "\nV =", Vi,  "dG =", dGj,   "Cov_Fails:", cov_fails);   print()
+        
+                # sends "number" of coverage failures to the fail_rank function, assigning a color to the combination of parameters for visuaal ease
+                '''did a double check, this function works (as long as the cov_fail numbers assigned and passed are correct!)'''
+                assign_color(cov_fails)
+                
+        
+        # once all V & dG values are run through, this combines all color dictionaries into one dictionary (might actually make things more complex, come back to this)
+        color_dict = {"pass":dict_pass, 'yellow':dict_Y, 'orange':dict_O, 'red':dict_R, 'black':dict_B, 'pink':dict_P }
+        
+        # calls the function that plots individual colors
+        for color in color_dict.values():
+            color_plots(color)
+            
+        # clls the function that creates a combined color plot
+        combined_plots(color_dict)
+                
+        # saves dat stuff. duh.
+        for color in color_dict.values():
+            saving_test_data(color)
+
+
+##############################################################################################################        
+##############################################################################################################
+        
+
+end= time.time()
+print("#######################################################################")
+print("\n All Done!")
+print("\nCurrent working directory (where the plots were saved to):", os.getcwd())
+print(f"\nExecution time: {end - start:.2f} seconds")
+
