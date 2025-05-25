@@ -1,0 +1,785 @@
+
+'''all V and beta testing stuff is at the bottom'''
+'''make sure to se "exist_ok" to "False" when testing for realsies'''
+'''make sure to set the "current directory" being used to where you want the files saved: the code will take care of the rest'''
+'''we're setting A = 10^4, so kT = (10^4)*cmax   and   kV should be within several orders oag miagnitude'''
+'''list what each color means here'''
+'''even if a parameter is not being varied, the steady value it will set as needs to be in the "_vals" list in theparameters section'''
+'''on pass/fail plots, the y-axis variable varies with every single iteration, THEN the x-axis'''''
+'''kV below kT'''
+
+import numpy as np
+from scipy.integrate import solve_ivp
+import matplotlib.pyplot as plt
+import os, time
+import pandas as pd
+plt.rcParams.update({'font.size': 14})
+start = time.time()
+
+
+############################################################################################################################
+############################################################################################################################
+########################################################## PARAMETERS #######################################################
+############################################################################################################################
+############################################################################################################################
+
+'''non-varying parameters'''
+for i in 'a':
+    # Physical Constants
+    RT = 8.314*298 #ideal gas law times temperature
+    F = 96485.0 #Faraday constant, C/mol
+    cmax = 7.5*10e-10 #mol*cm-2*s-1
+    e_charge = 1.602 * 10**-19 # Coulombs
+    AvoNum = 6.023 * 10**23
+    
+    '''note that this code uses the updated sanrate calculation'''
+    # parameters, time, and voltage/dG stuff
+    partialPH2 = 1
+    max_time = 48 #seconds (80 seconds is 1 cycle at 0.25 V/s scanrate)
+    dG_half_period = 0.5  # seconds
+    scans_per_dG_switch = 20
+    scanrate = dG_half_period / scans_per_dG_switch # to account for us always wanting enough data points taken for each dG switch
+    t_list = np.arange(0.0, max_time, scanrate)
+    duration = [0, t_list[-1]]
+    max_count = 500
+    
+    
+    
+    
+    # iniditial conditions (or "inconds" if you're cool enough to say it)
+    thetaA_H0 = 0.99  # Initial coverage of Hads, needs to be high as this is reduction forward
+    thetaA_Star0 = 1.0 - thetaA_H0  # Initial coverage of empty sites
+    theta0 = np.array([thetaA_Star0, thetaA_H0])
+
+
+
+
+
+'''varying parameters (may not vary, but they COULD which is important to the code)'''
+# dummy values for min and max should be assigned so the dictionary making code can work (even if we're not using it at the moment)
+for i in 'a':
+    
+    # beta stuff
+    beta_min = 0;   beta_max = 1;   beta_step = 0.2
+    beta_vals = np.arange(beta_step,   beta_max,   beta_step)
+    beta_vals = [float(i) for i in beta_vals]
+    
+    # dG stuff
+    dG_min = -0.3;   dG_max = 0.3;   dG_step = 0.01   # ALL THESE MEASUREMENTS ARE IN eV
+    dG_vals = np.linspace(dG_min, dG_max, 50) # not using dG_step right now
+    #dG_eV_vals = [-0.3] # dG values SPECIFICALLY in units of eV
+    yeboi = dG_vals
+    dG_vals = [(i * e_charge * AvoNum) for i in dG_vals] # converts dG from eV to J/mol (dG_eV * charge_of_electron * Avocado_number hehehe)
+    
+    # kT stuff
+    k_T_vals = [1E4]
+    k_T_vals = [i*cmax for i in k_T_vals]   # multiplies kT vals by cmax
+    kT_min = min(k_T_vals);   kT_max = max(k_T_vals)
+    
+    # kV stuff
+    k_V_vals = [1E-6, 1E-5, 1E-4, 1E-3, 1E-2, 1E-1, 1E0, 1E1, 1E2, 1E3, 1E4, 1E5, 1E6, 1E7, 1E8, 1E9, 1E10] # note: NOT multiplied by cmax yet
+    k_V_vals = [i*cmax for i in k_V_vals]   # multiplies kV vals by cmax
+    k_V_min = min(k_V_vals);   k_V_max = max(k_V_vals)
+
+    # Voltage stuff
+    V_lower = -0.5;   V_upper = 0.1;   V_step = 0.1
+    V_vals = np.arange(V_lower,   V_upper+V_step,   V_step)
+    V_vals = [float(i) for i in V_vals]
+    for i in range(0,len(V_vals)):
+        if abs(V_vals[i]) < 0.00001:   V_vals[i] = 0.0 # this is needed because otherwise the voltage for 0 is actually like 1 * 10^-16, which can mess stuff up
+
+# # keeps k_V and k_T at a certain ratio
+# k_T_vals = [1E-3, 1E-2, 1E-1, 1E0, 1E1, 1E2, 1E3, 1E4]
+# k_V_vals = [(i/1000) for i in k_T_vals]
+
+
+
+###########################################################################################################################
+###########################################################################################################################
+####################################################### SWITCHBOARD  ########################################################
+###########################################################################################################################
+###########################################################################################################################
+
+'''and what will we be varying today, sir/madaam/person?'''
+# tells the code what parameters we'll be varying:  for each one it sets up folders, creates plots, saves data (if the corresponding y/n below is active), etc
+for i in 'a':
+
+    '''SWEET BABY JESUS PAY ATTENTION TO THIS:   0 is the paremeter varied each iteration, 1 is varied when all the 0's are done, 2 is varied when the 1's are done, and so on'''
+    VPD = []   # VERY IMPORTANT DO NOT DELETE:   VPD is "varying parameters dictionary" even though it's not really a dictionary
+    VPD_all = []
+    vary_kV = 2
+    vary_kT = -1
+    vary_beta = 1
+    vary_dG = 0
+    vary_V = 3
+    ''' SWEET BABY RAY'S BARBEQUE SAUCE PAY ATTENTION:  setting "vary_V" as a postive number means "we are including Voltage as one of the parameters that is held constant through a single test".   It DOES NOT mean that Voltage varies with time within each test: if that is the case, set vary_V to a negative ant it will not be included in the varied-between-tests parameters'''
+
+
+
+
+# non-color yes/no
+mode_normal = 0
+for i in 'a':
+    
+    # note that this plot will only show up once, at the beginning
+    show_V_vs_t_plot = 0;          save_V_vs_t_plot = 0
+    
+    show_cov_vs_V_plots = 0;        save_cov_vs_V_plots = 0
+    show_cov_vs_t_plots = 0;        save_cov_vs_t_plots = 0
+
+    # current plots - shows pos and neg current values
+    show_xcurrent_vs_t_full_plots = 0;    save_xcurrent_vs_t_full_plots = 0
+    show_ycurrent_vs_t_full_plots = 0;    save_ycurrent_vs_t_full_plots = 0
+    show_xcurrent_vs_V_full_plots = 0;    save_xcurrent_vs_V_full_plots = 0    
+    show_ycurrent_vs_V_full_plots = 0;    save_ycurrent_vs_V_full_plots = 0
+
+    # current plots - shows pos values only ()
+    show_xcurrent_vs_t_pos_plots = 0;    save_xcurrent_vs_t_pos_plots = 0
+    show_ycurrent_vs_t_pos_plots = 0;    save_ycurrent_vs_t_pos_plots = 0
+    show_xcurrent_vs_V_pos_plots = 0;    save_xcurrent_vs_V_pos_plots = 0    
+    show_ycurrent_vs_V_pos_plots = 0;    save_ycurrent_vs_V_pos_plots = 0
+
+
+
+# color yes/no
+mode_color = 0
+for i in 'a':
+    # file types to save data as
+    save_as_csv = 0
+    
+    # saving data
+    save_data_pass = 0;   save_data_y = 0;   save_data_o = 0;   save_data_r = 0;   save_data_b = 0;   save_data_pink = 0
+    
+    # saving plots
+    save_plot_pass = 0;   save_plot_y = 0;   save_plot_o = 0;   save_plot_r = 0;   save_plot_b = 0;   save_plot_pink = 0
+    
+    # show or not show individual color plots
+    show_plot_pass = 0;   show_plot_y = 0;   show_plot_o = 0;   show_plot_r = 0;   show_plot_b = 0;   show_plot_pink = 0
+    
+    # which colors to include in the combined plots (and whether to show/save the combined plot at all)
+    save_combined_plot = 0;     show_combined_plot = 1
+    combined_pass = 1;   combined_y = 1;   combined_o = 1;   combined_r = 1;   combined_b = 1;   combined_pink = 1
+
+    # saves a calculation from being done further into the code
+    if show_plot_pass==1 or show_plot_y==1 or show_plot_o==1 or show_plot_r==1 or show_plot_b==1 or show_plot_pink==1:
+        show_indiv_color_plots = 1
+    else: show_indiv_color_plots = 0
+    
+
+# for holding V constant AND dG constant
+mode_static_volcano = 1
+
+
+
+# prints parameters in terminal at the beginning of each run
+print_params = 1
+for i in 'a':
+    if print_params == 1:
+        # shows values of parameters being varied in the terminal, delays code by a few seconds
+        # print("Parameters being varied:\n")
+        # if vary_V >= 0:     V_print =    [(f'{i:.3}') for i in V_vals];     print("V =", V_print); print()
+        # if vary_dG >= 0:    dG_print =   [(f'{i:.3}') for i in dG_vals];    print("dG =", dG_print); print()
+        # if vary_beta >= 0:  beta_print = [(f'{i:.3}') for i in beta_vals];  print("beta =", beta_print); print()
+        # if vary_kV >= 0:    kV_print =   [(f'{i:.3}') for i in k_V_vals];   print("kV =", kV_print); print()
+        # if vary_kT >= 0:    kT_print =   [(f'{i:.3}') for i in k_T_vals];   print("kT =", kT_print); print()
+        # print("##################################################################")
+        # print("##################################################################")
+        # time.sleep(12)
+        
+        print("Parameters being varied (NOT varied with time):"); print()
+        if vary_V >= 0: print("V:", len(V_vals), "values")
+        if vary_dG >= 0: print("dG:", len(dG_vals), "values")
+        if vary_beta >= 0: print("beta:", len(beta_vals), "values")
+        if vary_kV >= 0: print("kV:", len(k_V_vals), "values")
+        if vary_kT >= 0: print("kT:", len(k_T_vals), "values")
+        print("\nFor a total of", len(V_vals)*len(dG_vals)*len(beta_vals)*len(k_V_vals)*len(k_T_vals), "combinations")
+        time.sleep(8)
+
+
+
+
+
+
+
+
+############################################################################################################################
+############################################################################################################################
+##########################################################  STANDARD FUNCTIONS  #######################################################
+############################################################################################################################
+############################################################################################################################
+
+# sweeps that potential right under the rug, just like US government crimes
+# an "if" statement makes this function not be called if "vary_V" is turned off
+def potential(t):
+    
+    delta_V = V_upper - V_lower
+    half_period = delta_V / scanrate
+    full_period = 2 * half_period
+    t_mod = t % full_period
+
+    if t_mod < half_period:
+        voltage = V_lower + scanrate * t_mod
+    else:
+        voltage = V_upper - scanrate * (t_mod - half_period)
+
+    return voltage
+
+
+
+# this is the "rates", "site_balance", "eqpot" code we've been developing
+# depending how this function passes/fails, it'll return a specific value that will be color coded for marking on he plots
+def Test_Function(V_temp, dG, beta, k_V, k_T):
+    
+
+    for i in 'a':
+        '''here so they reset every loop'''
+        list_theta_star_all = [];   list_theta_H_all = []
+        count = 0 # adds +1 every loop: if it goes over max_count, we consider it to be non-coverging, and it returns a failure
+    
+        
+        def dGvt(t):
+            return dG_temp
+    
+        #Function to calculate U and Keq from theta, dG
+        def eqpot(theta, GHad):
+
+            theta = np.asarray(theta)
+            thetaA_Star, thetaA_H = theta # unpack surface coverage
+            U0 = (-GHad/F) + (RT*np.log(thetaA_Star/thetaA_H))/F
+
+            
+            #U relies on the free energy of hydrogen adsorption plus the log of surface coverage (considered a concentration)
+            return U0
+    
+        # reduction is FORWARD, oxidation is REVERSE, all variables are consistent with this
+        def rates_r0(t, theta):
+            
+            theta = np.asarray(theta)
+            thetaA_star, thetaA_H = theta #surface coverages again, acting as concentrations
+            
+            # only calls the "potenital" function if V is set to vary with time
+            if vary_V <= 0:   V = potential(t)
+            else:   V = V_temp
+                
+            GHad = dGvt(t)  # Get the current dG value based on time
+            U0 = eqpot(theta, GHad) #call function to find U for given theta
+    
+            ##Volmer Rate Equation
+            r_V = k_V * (thetaA_star ** (1 - beta)) * (thetaA_H ** beta) * np.exp(beta * GHad / RT) * (np.exp(-(beta) * F * (V - U0) / RT) - np.exp((1 - beta) * F * (V - U0) / RT))
+            
+            ##Tafel Rate equation
+            ##Tafel does not contribute to kinetic current, but does affect coverage of adsorbed hydrogen and free sites
+            r_T = k_T * ((thetaA_H **2) - (partialPH2 * (thetaA_star ** 2) * np.exp((-2*GHad) / RT)))
+            
+            return r_V, r_T
+        
+        def sitebal_r0(t, theta):
+            nonlocal count # tell's Python "this is the 'count' we created earlier, not a new object"
+            count += 1
+            if count > max_count:
+                print("Exceeded max_count, returning fail")
+                return() # since anything calling site_balance is gonna be expecting something returned, this will return an error which will stop the funciton running, which is what we want
+            
+            list_theta_star_all.append(theta[0])
+            list_theta_H_all.append(theta[1])
+            r_V, r_T = rates_r0(t, theta)
+
+            thetaStar_rate = (-r_V + (2*r_T)) / cmax
+            thetaH_rate = (r_V - (2*r_T)) / cmax
+            dthetadt = [(thetaStar_rate), thetaH_rate] # [0 = star, 1 = H]
+            
+            return dthetadt
+        
+    
+    
+    # "fail_count" counts the number of times a defined "failure condtition" is met while solve_ivp is running:   if there is some sort of code-killing error (log of a negative, array sizes don't match when performing operations, etc), fail_count will return a unique negative number based on the error type
+    for i in 'a':
+        fail_count = -1 # sets "other error" as the default: if this doesn't change by the end of the code, that's what will be returned
+        
+        try:
+            soln = solve_ivp(sitebal_r0, duration, theta0, t_eval=t_list, method='BDF')
+        
+
+        
+            if soln.success == True:
+                
+                ############################################################################################################################################################
+                ################################################ EXTRACTING SOLVER DATA ###############################################################################
+                ############################################################################################################################################################
+                
+                '''does the rT term need to be multiplied by 2'''
+                # rate & current values
+                r_all_array = np.array([rates_r0(time, theta) for time,theta in zip(t_list, soln.y.T)]) # creates an array of all rate values SPECIFICALLY at the times we actually want to use, not random times that solve_ivp used to solve the system. Feeds the 'rates' function the list of time values AND the theta values that solve_ivp solved for at those times
+                r_V_list = r_all_array[:,0];          r_T_list = r_all_array[:,1]
+                curr_V_list = -1000 * r_V_list * F;      curr_T_list = -1000 * r_T_list * F   # multiply by 1000 to sonvert to mA
+                curr_list = curr_V_list + curr_T_list # net current
+                
+                # extracting coverage data
+                theta_star_list = soln.y[0,:];     theta_H_list = soln.y[1,:]
+        
+                # to get here, the solver must have been successful. So, this will add the dG and max-current value to a list in the "call-functions" section below, and since that list is used to make the static volcano plot, the plot will only be fed dG&current pairs from a successful trial
+                # NOTE THAT IT TAKES A VOLMER CURRENT VALUE, NOT A NET CURRENT VALUE, also that it's using absolute values of the current
+                if mode_static_volcano == 1:
+                    stat_volc_data.append((float(dG / (e_charge * AvoNum)),   abs(float(curr_V_list[100]))))
+        
+                ############################################################################################################################################################
+                ################################################   PLOTS   ###############################################################################
+                ############################################################################################################################################################
+                
+                # calls the "normal_plots" function below to plot things like current vs V, coverage, etc (things we'd normally plot)
+                if mode_normal == 1:
+                    normal_plots(theta_star_list, theta_H_list, curr_list, curr_V_list, curr_T_list)
+                
+                
+        ############################################################################################################################################################
+        ################################################ PASS/FAIL ANALYSIS ###############################################################################
+        ############################################################################################################################################################
+                # if we end up shoehorning values, this will return the number of times it had to be done (0 if not at all): the more times, the more severe the "error" (though technically the system passes, it just took some fudging)
+                fail_count = len([z for z in list_theta_star_all if z >= 1.0 or z <=0.0])
+                
+                
+    
+            # if max_count was exceeded, this returns a "does not converge" error
+            elif count > max_count:
+                print('Solver did not converge in time'); fail_count = -3
+        
+        # if Python has a math error (like natural log of a negative number), this returns a "red" error
+        except ValueError as error:
+            print('Solver crashed: Value Error', error);     fail_count = -2
+            
+        # cov_fails was not changed from the default: a "pink" error (should always be -1, nice and easy to remember which is good cuz we'll always need an "other" category)
+        if fail_count == -1:   print("Unexpected Error")
+        
+        return(fail_count)
+
+
+
+
+
+
+
+
+############################################################################################################################
+############################################################################################################################
+########################################################## TESTING FUNCTIONS #######################################################
+############################################################################################################################
+############################################################################################################################
+
+# creates a dictionary (actually a list for now) of parameter dictionaries that contain plotting, saving, and other info
+def create_param_dict():
+    
+    # terminates if parameters don't have different order numbers
+    if (vary_dG==vary_beta) or (vary_dG==vary_kV) or (vary_dG==vary_kT) or (vary_beta==vary_kV) or (vary_beta==vary_kT) or (vary_kV==vary_kT):
+        print('WHAT ARE YOU DOING YOURE RUINING EVEYTHING')
+        print('VARY THE PARAMETERS THE CORRECT WAY, YOU SOCIOPATH'); print()
+        print("Terminating program........you monster. Go call your parents then take some time to think about what you've done.")
+        while (time.time() - start)  < 15:
+            a = 1 # dummy thing to hold the code over before it terminates
+        exit()
+
+    # list of dictionaries: each dicitonary contatins info for the parameter in question (plot titles, size, order, etc)
+    param_templates = [
+        ('k_V', {'ordering':vary_kV,    'axis_title': '$k_V$',          'title_abbrev': '$k_V$',        'list_name': 'kV_data',     'axis_min_adjust': None,            'axis_max_adjust': None,             'axis_scale':'log',      'param_values':k_V_vals}),
+        ('k_T', {'ordering':vary_kT,    'axis_title': '$k_T$',          'title_abbrev': '$k_T$',        'list_name': 'kT_data',     'axis_min_adjust': None,            'axis_max_adjust': None,             'axis_scale':'log',       'param_values':k_T_vals}),
+        ('dG',  {'ordering':vary_dG,    'axis_title': '$\\Delta G$',    'title_abbrev': '$\\Delta G$',  'list_name': 'dG_data',     'axis_min_adjust': dG_min - 0.1,    'axis_max_adjust': dG_max + 0.1,     'axis_scale':'linear',     'param_values':dG_vals}),
+        ('beta',{'ordering':vary_beta,  'axis_title': 'B',              'title_abbrev': 'B',            'list_name': 'beta_data',   'axis_min_adjust': beta_min - 0.1,  'axis_max_adjust': beta_max + 0.1,   'axis_scale':'linear',  'param_values':beta_vals}),
+        ('Volt',{'ordering':vary_V,     'axis_title': 'V',              'title_abbrev': '$V$',          'list_name': 'V_data',      'axis_min_adjust': V_lower - 0.1,   'axis_max_adjust': V_upper + 0.1,    'axis_scale':'linear', 'param_values':V_vals}),
+    ]
+
+    # runs through "param_templates" and creates "VPD" (a list of dictionaries, the order of which is determined by the "vary_*parameter*" values))
+    # importantly, does not add parameters given a negative "vary" value, so it excludes those from VPD
+    for i in range(0, len(param_templates)):
+        for key, param_dict in param_templates:
+            if param_dict['ordering'] == i:
+                VPD.append(param_dict)
+                VPD_all.append(param_dict)
+    # below here only adds to VPD_all so that VPD can remain its current size
+    for key, param_dict in param_templates:
+        if param_dict['ordering'] < 0:
+            VPD.append(param_dict)
+            VPD_all.append(param_dict)
+        
+        
+    
+    
+    
+    
+
+# creates folders to hold data for stuff and things
+def create_folders():
+    subfolders_plots = {
+        "summary_plots": "summary_plots",   "passes": "passes",   "yellow": "fails_yellow",   "orange": "fails_orange",   "red": "fails_red",   "black": "fails_black",   "pink": "fails_pink"}
+    subfolders_lists = {
+        "complete_lists": "complete_lists",   "passes": "passes",   "yellow_fails": "fails_yellow",   "orange_fails": "fails_orange",   "red_fails": "fails_red",   "black_fails": "fails_black",   "pink_fails": "fails_pink"}
+    '''the things below should be set to "False" when actually running the code for realsies: otherwise, files from previous trials willl be ocverwritten'''
+    
+    
+    for folder in subfolders_plots.values():
+        os.makedirs(os.path.join("plots", folder), exist_ok=True)
+    for folder in subfolders_lists.values():
+        os.makedirs(os.path.join("lists", folder), exist_ok=True)
+    return(subfolders_plots, subfolders_lists)
+
+
+# creates color dictionaries with empty parameter value lists, plotting specifications, etc
+'''if you want to collect and save a new set of data, or change anything reall, probably start by editing this'''
+# each dicitonary starts off hand-made. Then, "add_param_keys" adds a key:value pair for each parameter we indicated (all the way up top) that we want to vary (these lists are later used to make the pass/fail plots and can be saved)
+def create_color_dict():
+    
+    # gets fed each of the color dicitonaries, then adds and returns key:value pairs for any variables be varied throughout the testing
+    def add_param_keys(color_dict):
+        for param in VPD_all:
+            color_dict[param['list_name']] = []
+        return color_dict
+    
+    dict_pass = add_param_keys({"designation":"pass",   'color':'blue',     "marker":"o",   "alpha":1,      'label':'pass',         "title":"passes",           "folders_name":'passes',        'save_plot':save_plot_pass,     'save_data':save_data_pass,     'show_plot':show_plot_pass,     'combined_show':combined_pass})
+    dict_Y = add_param_keys({"designation":"yellow",    'color':'yellow',   "marker":"x",   "alpha":1,      'label':'y',            "title":"yellow_fails",     "folders_name":'fails_yellow',  'save_plot':save_plot_y,        'save_data':save_data_y,        'show_plot':show_plot_y,        'combined_show':combined_y})
+    dict_O = add_param_keys({"designation":"orange",    'color':'orange',   "marker":"x",   "alpha":1,      'label':'o',            "title":"orange_fails",     "folders_name":'fails_orange',  'save_plot':save_plot_o,        'save_data':save_data_o,        'show_plot':show_plot_o,        'combined_show':combined_o})
+    dict_R = add_param_keys({"designation":"red",       'color':'red',      "marker":"x",   "alpha":1,      'label':'ValueError',   "title":"red_fails",        "folders_name":'fails_red',     'save_plot':save_plot_r,        'save_data':save_data_r,        'show_plot':show_plot_r,        'combined_show':combined_r})
+    dict_B = add_param_keys({"designation":"black",     'color':'black',    "marker":"x",   "alpha":0.4,    'label':'DNC',          "title":"black_fails",      "folders_name":'fails_black',   'save_plot':save_plot_b,        'save_data':save_data_b,        'show_plot':show_plot_b,        'combined_show':combined_b})
+    dict_P = add_param_keys({"designation":"pink",      'color':'pink',     "marker":"x",   "alpha":1,      'label':'Other Error',  "title":"pink_fails",       "folders_name":'fails_pink',    'save_plot':save_plot_pink,     'save_data':save_data_pink,     'show_plot':show_plot_pink,     'combined_show':combined_pink})
+
+    return(dict_pass, dict_Y, dict_O, dict_R, dict_B, dict_P)
+
+ 
+
+'''whenever you want to change the criteria for "types of failures" (doesn't have to be failures, could be goodthings), this function is what should be edited'''
+# "ranks" the severity of any failures and color codes them (appends their specific data lists)
+# even though we assign the dictionary being edited as "target_dict", any changes will affect the color dictionary we want it to. Just how dictionary stuff works I guess?
+def assign_color(fail_count, V_temp, dG_temp, beta_temp, k_V_temp, k_T_temp):
+    
+    # assigning a color based on failure type
+    if fail_count == 0:      target_dict = dict_pass
+    if 0 < fail_count <= 5:  target_dict = dict_Y
+    if fail_count > 5:       target_dict = dict_O
+    if fail_count == -2:     target_dict = dict_R
+    if fail_count == -3:     target_dict = dict_B
+    if fail_count == -1:     target_dict = dict_P
+    
+    # creates a dictionary of values ready to append to lists
+    param_dict = {'V_data':V_temp, 'dG_data':dG_temp, 'beta_data':beta_temp, 'kV_data': k_V_temp, 'kT_data':k_T_temp}
+    
+    # runs through the active parameters, appends the appropriate lists within the appropriate color dictionaries    
+    for key, val in param_dict.items():
+        target_dict[key].append(val)
+
+
+
+
+def normal_plots(theta_star_list, theta_H_list, curr_list, curr_V_list, curr_T_list):
+    
+    # only makes plots if mode is set to normal
+    if mode_normal == 1:
+        
+        #########################################  Coverage ####################################################
+        
+        # coverage vs t
+        if show_cov_vs_t_plots == 1   or   save_cov_vs_t_plots == 1:
+            plt.plot(t_list[20:], theta_star_list[20:], 'm', label=r'$\theta_*$')
+            plt.plot(t_list[20:], theta_H_list[20:], 'b', label=r'$\theta_H$')
+            plt.title("Coverage vs Time\n" + title_param_addon)
+            plt.xlabel('t');   plt.ylabel('coverage');   plt.grid();   plt.legend()
+            if show_cov_vs_V_plots == 1:   plt.show()
+            plt.close()
+        
+        # coverage vs V
+        if show_cov_vs_V_plots == 1   or   save_cov_vs_V_plots == 1:
+            plt.plot(V_list[20:], theta_star_list[20:], 'm', label=r'$\theta_*$')
+            plt.plot(V_list[20:], theta_H_list[20:], 'b', label=r'$\theta_H$')
+            plt.title("Coverage vs V\n" + title_param_addon)
+            plt.xlabel('V');   plt.ylabel('coverage');   plt.grid();   plt.legend()
+            if show_cov_vs_V_plots == 1:   plt.show()
+            plt.close()
+        
+        
+        #########################################  Positive Currents Only  ####################################################
+        
+        
+        # current vs t (current on x) (only positive current values)
+        if show_xcurrent_vs_t_pos_plots == 1   or   save_xcurrent_vs_t_pos_plots == 1:
+            #plt.plot(curr_list[20:], t_list[20:], 'black', label='net')
+            plt.plot(curr_V_list[20:], t_list[20:], 'r--', label='volmer')
+            #plt.plot(curr_T_list[20:], t_list[20:], 'y--', label='tafel')
+            plt.title("Time vs Current\n" + title_param_addon)
+            plt.xscale('log')
+            plt.xlabel('I (mA, not A)');   plt.ylabel('time (s)')
+            plt.grid();   plt.legend()
+            if show_xcurrent_vs_V_pos_plots == 1:   plt.show()
+            plt.close()
+    
+        # current vs V (current on x) (only positive current values)
+        if show_xcurrent_vs_V_pos_plots == 1   or   save_xcurrent_vs_V_pos_plots == 1:
+            #plt.plot(curr_list[20:], V_list[20:], 'black', label='net')
+            plt.plot(curr_V_list[20:], V_list[20:], 'r--', label='volmer')
+            #plt.plot(curr_T_list[20:], V_list[20:], 'y--', label='tafel')
+            plt.title("V vs Current\n" + title_param_addon)
+            plt.xscale('log')
+            plt.xlabel('I (mA, not A)');   plt.ylabel('V')
+            plt.grid();   plt.legend()
+            if show_xcurrent_vs_V_pos_plots == 1:   plt.show()
+            plt.close()
+        
+        # current vs t (current on y) (only positive current values)
+        if show_ycurrent_vs_t_pos_plots == 1   or   save_ycurrent_vs_t_pos_plots == 1:
+            #plt.plot(t_list[20:], curr_list[20:], 'black', label='net')
+            plt.plot(t_list[20:], curr_V_list[20:], 'r--', label='volmer')
+            #plt.plot(t_list[20:], curr_T_list[20:], 'y--', label='tafel')
+            plt.title("Current vs Time\n" + title_param_addon)
+            plt.xlabel('t');   plt.ylabel('I (mA, not A)')
+            plt.yscale('log')
+            plt.grid();   plt.legend()
+            if show_ycurrent_vs_V_pos_plots == 1:   plt.show()
+            plt.close()
+    
+        # current vs V (current on y) (only positive current values)
+        if show_ycurrent_vs_V_pos_plots == 1 or save_ycurrent_vs_V_pos_plots == 1:
+            #plt.plot(V_list[20:], curr_list[20:], 'black', label='net')
+            plt.plot(V_list[20:], curr_V_list[20:], 'r--', label='volmer')
+            #plt.plot(V_list[20:], curr_T_list[20:], 'y--', label='tafel')
+            plt.title("Current vs V\n" + title_param_addon)
+            plt.xlabel('V');     plt.ylabel('I (mA, not A)')
+            plt.yscale('log')
+            plt.grid();     plt.legend()
+            if show_ycurrent_vs_V_pos_plots == 1:   plt.show()
+            plt.close()
+
+
+        #########################################  Pos & Neg Currents ####################################################
+        
+        # current vs t (current on x) (positive and negative current values)
+        if show_xcurrent_vs_t_full_plots == 1   or   save_xcurrent_vs_t_full_plots == 1:
+            #plt.plot(curr_list[20:], t_list[20:], 'black', label='net')
+            plt.plot(curr_V_list[20:], t_list[20:], 'r--', label='volmer')
+            #plt.plot(curr_T_list[20:], t_list[20:], 'y--', label='tafel')
+            plt.title("Time vs Current\n" + title_param_addon)
+            plt.xscale('symlog', linthresh=1e-2)
+            plt.xlabel('I (mA, not A)');   plt.ylabel('time (s)')
+            plt.grid();   plt.legend()
+            if show_xcurrent_vs_V_full_plots == 1:   plt.show()
+            plt.close()
+        
+        # current vs V (current on x) (positive and negative current values)
+        if show_xcurrent_vs_V_full_plots == 1   or   save_xcurrent_vs_V_full_plots == 1:
+            #plt.plot(curr_list[20:], V_list[20:], 'black', label='net')
+            plt.plot(curr_V_list[20:], V_list[20:], 'r--', label='volmer')
+            #plt.plot(curr_T_list[20:], V_list[20:], 'y--', label='tafel')
+            plt.title("V vs Current\n" + title_param_addon)
+            plt.xscale('symlog', linthresh=1e-2)
+            plt.xlabel('I (mA, not A)');   plt.ylabel('V')
+            plt.grid();   plt.legend()
+            if show_xcurrent_vs_V_full_plots == 1:   plt.show()
+            plt.close()
+        
+        # current vs t (current on y) (positive and negative current values)
+        if show_ycurrent_vs_t_full_plots == 1   or   save_ycurrent_vs_t_full_plots == 1:
+            #plt.plot(t_list[20:], curr_list[20:], 'black', label='net')
+            plt.plot(t_list[20:], curr_V_list[20:], 'r--', label='volmer')
+            #plt.plot(t_list[20:], curr_T_list[20:], 'y--', label='tafel')
+            plt.title("Current vs Time\n" + title_param_addon)
+            plt.yscale('symlog', linthresh=1e-3)
+            plt.xlabel('t');   plt.ylabel('I (mA, not A)')
+            plt.grid();   plt.legend()
+            if show_ycurrent_vs_V_full_plots == 1:   plt.show()
+            plt.close()
+        
+        # current vs V (current on y) (positive and negative current values)
+        if show_ycurrent_vs_V_full_plots == 1 or save_ycurrent_vs_V_full_plots == 1:
+            #plt.plot(V_list[20:], curr_list[20:], 'black', label='net')
+            plt.plot(V_list[20:], curr_V_list[20:], 'r--', label='volmer')
+            #plt.plot(V_list[20:], curr_T_list[20:], 'y--', label='tafel')
+            plt.yscale('symlog', linthresh=1e-3)
+            plt.title("Current vs V\n" + title_param_addon)
+            plt.xlabel('V');   plt.ylabel('I (mA, not A)')
+            plt.grid();   plt.legend()
+            if show_ycurrent_vs_V_full_plots == 1:   plt.show()
+            plt.close()
+        
+
+
+# makes pass/fail scatter plots for V & beta combinations at given kV&kT values (for now, only one color per chart: we here at CatCo appologize for the inconvenience)
+# only saves and/or prints an individual color plot if the respective yes/no value is set to 1 AND IF there are any values to actually show
+def color_plots(color):
+
+    if len(color[VPD[0]['list_name']]) > 0     and     ( color['show_plot']==1 or color['save_plot']==1 ):
+        color[VPD[0]['list_name']]
+        plt.scatter(color[VPD[0]['list_name']], color[VPD[1]['list_name']], marker=color['marker'], color=color['color'], alpha=color['alpha'])
+        plt.title('asdfasasd')
+        plt.xlabel(VPD[0]['axis_title']);   plt.ylabel(VPD[1]['axis_title'])
+        plt.xlim(VPD[0]['axis_min_adjust'], VPD[0]['axis_max_adjust']);   plt.xlim(VPD[1]['axis_min_adjust'], VPD[1]['axis_max_adjust'])
+        if color['save_plot'] == 1:   plt.savefig(os.path.join("plots", color['folders_name'], f"{loop_id}.png"))
+        if color['show_plot'] == 1:   plt.show()
+        plt.close()
+
+
+# combined plots automatically save (for now)
+def combined_plots(color_dict, V_temp, dG_temp, beta_temp, k_V_temp, k_T_temp, shmoopadoop):
+    
+    title_add = '';   color_count = 0 # both are for the plot title: gotta be fresh and stylish (if all colors are plotted, title just says "all" instead of listing individual colors)
+    for color in color_dict.values():
+        
+        if len(color[VPD[0]['list_name']]) > 0     and     color['combined_show'] == 1:
+            color_count += 1
+            title_add += f"{color['designation']}"
+            plt.plot(color[VPD[1]['list_name']], color[VPD[0]['list_name']], marker=color['marker'], color=color['color'], alpha=color['alpha'], label=color['label'], linestyle='')
+            
+    if color_count == len(color_dict):   title_add = 'all)'
+    title = f"Pass/Fails of {VPD[1]['title_abbrev']} & {VPD[0]['title_abbrev']} combinations ({title_add})\n{shmoopadoop}"
+    plt.title(title);   plt.legend(loc = "best")
+    plt.xscale(VPD[1]['axis_scale']);   plt.yscale(VPD[0]['axis_scale'])
+    plt.xlabel(VPD[1]['axis_title']);   plt.ylabel(VPD[0]['axis_title'])
+    plt.xlim(VPD[1]['axis_min_adjust'], VPD[1]['axis_max_adjust']);   plt.ylim(VPD[0]['axis_min_adjust'], VPD[0]['axis_max_adjust'])
+    if save_combined_plot == 1:   plt.savefig(os.path.join("plots", "summary_plots", f"summary_{loop_id}.png"))
+    if show_combined_plot == 1:   plt.show()
+    plt.close()
+
+
+# for each color, this gets sent a list of V & list of dG values to combine (other data types might get added)
+# once all V and dG values are ran through, this combines each V and dG set into a two-columned array, then, this saves the pass/fail ranked lists to a folder
+def saving_test_data(color):
+    if color['save_data'] == 1:
+        data = np.column_stack((color[VPD[0]['list_name']], color[VPD[0]['list_name']]))
+        pd.DataFrame(data).to_csv(os.path.join("lists", color['folders_name'], f"{loop_id}.csv"), index=True)
+
+
+# gets passed data for successful dG value iterations, and the associated currents
+def static_volcano_plots(stat_volc_data, V_temp, beta_temp, k_V_temp, k_T_temp):
+    
+    # unpacks the dG and current data
+    dGs, currs = zip(*stat_volc_data)
+    max_curr = max(currs);   max_dG = dGs[currs.index(max_curr)]
+    
+    # scary volcano plot: beware suspicious magma flows
+    plt.figure(figsize=(10, 6))
+    plt.plot(dGs, currs, marker='o', label=f"{len(dGs)}/{len(dG_vals)} iterations successful")
+    plt.plot(max_dG, max_curr, marker='o', color='red', label=f'Max: ({max_dG:.2}, {max_curr:.3})')
+    plt.xlabel("GHad (eV)")
+    plt.ylabel("Max |Current Density| (mA/cm²)")
+    plt.title(f"Brett's grassfed, cage-free\nMax Current Density vs GHad \nV={V_temp:.2}   B={beta_temp:.3} \n kV={k_V_temp:.2e}   kT={k_T_temp:.2e}")
+    plt.xlim(dG_min-0.05, dG_max+0.05)
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+
+###########################################################################################################################
+###########################################################################################################################
+################################################   THE TESTING LOOPS  ##################################################
+###########################################################################################################################
+###########################################################################################################################
+
+# dictionaries containing the names of the subfolders being created (like "yellow_fails") in both a "plots" and "lists" (could be changed to "data") folders in the current directory
+# this needs to (or should) be before any loops because the values inside it are used to fill out part of each color's dictionary
+create_param_dict() # creates a list of dictionaries specific to each varying parameter, conatining plot instructions and other stuff\
+subfolders_plots, subfolders_lists = create_folders()
+evals = 0 # increases and prints in terminal while code is running to easily check progress
+
+# creates a list of Vapp values at each time stamp in our official time list
+# prints V vs t plot, only once at the beginning
+V_list = np.array([potential(ti) for ti in t_list])
+if show_V_vs_t_plot == 1   or   save_V_vs_t_plot == 1:
+    plt.plot(t_list, V_list)
+    plt.title('V vs t');   plt.xlabel('t');   plt.ylabel('V (V, not mV)')
+    if show_V_vs_t_plot == 1:   plt.show()
+
+
+'''time-varying parameters are weird: if Voltage DOES NOT vary with time, this sets "V_temp" as a dummy value: in the Main Function, voltage will be caluclated based on time as it usually is'''
+# if a paramater is set as "not to be varied" (a negative switchboard value), this will assign  if a parameter is set as "not to be varied" (a negative switchboard value), these lines will assign a dummy value for that parameter, so there is something to be passed to the main function
+if vary_kV < 0:     k_V_temp = k_V_vals[0]
+if vary_kT < 0:     k_T_temp = k_T_vals[0]
+if vary_dG < 0:     dG_temp = dG_vals[0]
+if vary_beta < 0:   beta_temp = beta_vals[0]
+if vary_V < 0:      V_temp = V_vals[0]
+
+
+'''vary values HAVE to get fed into the loops no matter what: they will ALWAYS need to. Therefore, there's no use for "0" being reserved to mean "parameter not used"  '''
+for i in VPD[3]['param_values']:
+    if vary_kV==3:      k_V_temp = i
+    if vary_kT==3:      k_T_temp = i
+    if vary_dG==3:      dG_temp = i
+    if vary_beta==3:    beta_temp = i        
+    if vary_V==3:       V_temp = i
+
+    for j in VPD[2]['param_values']:
+        if vary_kV==2:      k_V_temp = j
+        if vary_kT==2:      k_T_temp = j
+        if vary_dG==2:      dG_temp = j
+        if vary_beta==2:    beta_temp = j
+        if vary_V==2:       V_temp = j
+        dict_pass, dict_Y, dict_O, dict_R, dict_B, dict_P = create_color_dict()   # calls the function to create dictionaries for all colors that contain empty V & beta lists, as well as plot parameters and stuff (NEEDS TO BE BEFORE THE LAST 2 PARAMETER VARIATIONS)
+
+        for k in VPD[1]['param_values']:
+            if vary_kV==1:      k_V_temp = k
+            if vary_kT==1:      k_T_temp = k
+            if vary_dG==1:      dG_temp = k
+            if vary_beta==1:    beta_temp = k
+            if vary_V==1:       V_temp = k
+            stat_volc_data = [] # needs to reset once all dG values are run through
+            
+            for m in VPD[0]['param_values']:
+                if vary_kV==0:      k_V_temp = m
+                if vary_kT==0:      k_T_temp = m
+                if vary_dG==0:      dG_temp = m
+                if vary_beta==0:    beta_temp = m
+                if vary_V==0:       V_temp = m
+                
+                evals += 1 # for visually seeing how far along the code i
+                title_param_addon = f"dG={dG_temp:.2e}   B={beta_temp:.3} \n kV={k_V_temp:.2e}   kT={k_T_temp:.2e}" # each plot includes the varied parameter values in its title: easier to just make it here
+                loop_id = f"dG{dG_temp:.3e}__B{beta_temp:.3e}__kV{k_V_temp:.2e}__kT{k_T_temp:.2e}"  # SOOPER IMPORTANT: when saving data sets and plots, this gives each a unique names
+                
+                # calls the main function
+                fail_count = Test_Function(V_temp, dG_temp, beta_temp, k_V_temp, k_T_temp)
+                print("Eval #", evals,   "  Fail Count::", fail_count,   f"\ndG={dG_temp:.2e}",   f"beta = {beta_temp:.3}"   f"\nkV = {k_V_temp:.2e}",    f"kT = {k_T_temp:.2e}");   print()          
+                
+                
+                ############################################################################################################
+                ############################################################################################################
+                        
+                # sends "number" of coverage failures to the fail_rank function, assigning a color to the combination of parameters for visuaal ease
+                # did a double check, this function works (as long as the cov_fail numbers assigned and passed are correct!)
+                if mode_color == 1:
+                    assign_color(fail_count, V_temp, dG_temp, beta_temp, k_V_temp, k_T_temp)
+        
+            if mode_static_volcano == 1:
+                static_volcano_plots(stat_volc_data, V_temp, beta_temp, k_V_temp, k_T_temp)
+        
+        # only does pass/fail stuff if set to colors mode
+        if mode_color == 1:
+            
+            # once all of the first (last?) two parameter values are run through, this combines all color dictionaries into one dictionary (might actually make things more complex, come back to this)
+            color_dict = {"pass":dict_pass, 'yellow':dict_Y, 'orange':dict_O, 'red':dict_R, 'black':dict_B, 'pink':dict_P }
+            
+            # calls the function that plots individual colors
+            if show_indiv_color_plots == 1:
+                for color in color_dict.values():
+                    color_plots(color)
+        
+            # calls the function that creates a combined color plot
+            if show_combined_plot == 1   or   save_combined_plot == 1:
+                scoobydoo = f"{VPD[3]['title_abbrev']}={i:.2}" + f" {VPD[2]['title_abbrev']}={j:.2}"
+                combined_plots(color_dict, V_temp, dG_temp, beta_temp, k_V_temp, k_T_temp, scoobydoo)
+                    
+            # saves dat stuff. duh.
+            for color in color_dict.values():
+                saving_test_data(color)
+
+    
+
+
+
+
+
+
+
+
+##############################################################################################################
+        
+
+for i in 'a':
+    end = time.time()
+    print("#######################################################################")
+    print("\n All Done!")
+    print("\nCurrent working directory (where the plots were saved to):", os.getcwd())
+    print(f"\nExecution time: {end - start:.2f} seconds")
+    
